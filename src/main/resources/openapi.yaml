@@ -1,0 +1,545 @@
+openapi: 3.0.3
+info:
+  title: Airport Transfer Aggregator API
+  description: |
+    REST API for aggregating airport transfer services from multiple suppliers.
+    
+    ## Features
+    - Search across multiple suppliers in parallel
+    - Unified booking interface
+    - Signed, stateless tokens for offers and bookings
+    - Idempotency support for booking operations
+    
+    ## Authentication
+    No authentication required for API calls. Supplier credentials are managed server-side.
+    
+    ## Rate Limits
+    - Search: 80 requests/minute
+    - Booking: 50 requests/minute
+  version: 1.0.0
+  contact:
+    name: Arcube Engineering
+    email: engineering@arcube.com
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Transfers
+    description: Airport transfer search, booking, and cancellation
+
+paths:
+  /api/v1/transfers/search:
+    post:
+      tags:
+        - Transfers
+      summary: Search for transfer offers
+      description: Searches all enabled suppliers for transfer offers matching the criteria
+      operationId: search
+      parameters:
+        - name: X-Request-Id
+          in: header
+          description: Request ID for tracing
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            example:
+              pickupLocation:
+                address: "433 Park Ave, New York, NY"
+              dropoffLocation:
+                iataCode: "JFK"
+              pickupDateTime: "2024-08-16T15:30:00"
+              numPassengers: 2
+              numBags: 2
+              currency: "USD"
+              mode: "ONE_WAY"
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transfers/book:
+    post:
+      tags:
+        - Transfers
+      summary: Book a transfer
+      description: Books a transfer using an offer ID from a previous search
+      operationId: book
+      parameters:
+        - name: X-Request-Id
+          in: header
+          description: Request ID for tracing
+          required: false
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          description: Idempotency key to prevent duplicate bookings
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+            example:
+              offerId: "eyJpYXQiOjE3NjgwNTM4MzkuLi4"
+              passenger:
+                firstName: "John"
+                lastName: "Doe"
+                email: "john.doe@example.com"
+                phoneNumber: "+1234567890"
+                countryCode: "US"
+              flight:
+                airline: "AA"
+                flightNumber: "123"
+      responses:
+        '200':
+          description: Booking successful or pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookResponse'
+        '400':
+          description: Invalid request or missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Offer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Price changed or duplicate booking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Offer expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transfers/bookings/{bookingId}:
+    delete:
+      tags:
+        - Transfers
+      summary: Cancel a booking
+      description: Cancels an existing booking
+      operationId: cancel
+      parameters:
+        - name: X-Request-Id
+          in: header
+          description: Request ID for tracing
+          required: false
+          schema:
+            type: string
+        - name: bookingId
+          in: path
+          description: The booking ID to cancel
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+        '400':
+          description: Invalid booking ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Cannot cancel - too late or already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    SearchRequest:
+      type: object
+      required:
+        - pickupLocation
+        - dropoffLocation
+        - pickupDateTime
+      properties:
+        pickupLocation:
+          $ref: '#/components/schemas/LocationDto'
+        dropoffLocation:
+          $ref: '#/components/schemas/LocationDto'
+        pickupDateTime:
+          type: string
+          format: date-time
+          description: Pickup date and time in ISO 8601 format
+        numPassengers:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Number of passengers
+        numBags:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Number of bags
+        currency:
+          type: string
+          default: "USD"
+          description: Currency code (ISO 4217)
+        mode:
+          type: string
+          enum: [ONE_WAY, ROUND_TRIP, HOURLY]
+          default: ONE_WAY
+          description: Transfer mode
+
+    LocationDto:
+      type: object
+      description: Location can be specified by address, IATA code, coordinates, or place ID
+      properties:
+        address:
+          type: string
+          description: Full address
+        iataCode:
+          type: string
+          description: Airport IATA code (e.g., JFK, LAX)
+        placeId:
+          type: string
+          description: Google Place ID
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+
+    BookRequest:
+      type: object
+      required:
+        - offerId
+        - passenger
+      properties:
+        offerId:
+          type: string
+          description: Signed offer ID from search results
+        passenger:
+          $ref: '#/components/schemas/PassengerDto'
+        flight:
+          $ref: '#/components/schemas/FlightDto'
+        extraPassengers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtraPassengerDto'
+        specialInstructions:
+          type: string
+          description: Special instructions for the driver
+
+    PassengerDto:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+        - phoneNumber
+        - countryCode
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phoneNumber:
+          type: string
+        countryCode:
+          type: string
+          description: ISO 3166-1 alpha-2 country code
+
+    FlightDto:
+      type: object
+      required:
+        - airline
+        - flightNumber
+      properties:
+        airline:
+          type: string
+          description: Airline IATA code (e.g., AA, UA)
+        flightNumber:
+          type: string
+
+    ExtraPassengerDto:
+      type: object
+      required:
+        - firstName
+        - lastName
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+
+    SearchResponse:
+      type: object
+      properties:
+        searchId:
+          type: string
+          description: Unique search identifier
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferDto'
+        incomplete:
+          type: boolean
+          description: True if some suppliers timed out
+        supplierStatuses:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SupplierStatusDto'
+
+    OfferDto:
+      type: object
+      properties:
+        offerId:
+          type: string
+          description: Signed offer ID (use this for booking)
+        supplierCode:
+          type: string
+        vehicle:
+          $ref: '#/components/schemas/Vehicle'
+        provider:
+          $ref: '#/components/schemas/Provider'
+        totalPrice:
+          $ref: '#/components/schemas/Money'
+        cancellation:
+          $ref: '#/components/schemas/CancellationPolicy'
+        estimatedDurationMinutes:
+          type: integer
+        flightInfoRequired:
+          type: boolean
+        extraPassengerInfoRequired:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+        includedAmenities:
+          type: array
+          items:
+            type: string
+        availableAmenities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmenityDto'
+
+    Vehicle:
+      type: object
+      properties:
+        type:
+          type: string
+        category:
+          type: string
+        vehicleClass:
+          type: string
+        image:
+          type: string
+        maxPassengers:
+          type: integer
+        maxBags:
+          type: integer
+        make:
+          type: string
+        model:
+          type: string
+
+    Provider:
+      type: object
+      properties:
+        name:
+          type: string
+        displayName:
+          type: string
+        logoUrl:
+          type: string
+        rating:
+          type: number
+        ratingCount:
+          type: integer
+        contactPhone:
+          type: string
+
+    Money:
+      type: object
+      properties:
+        value:
+          type: number
+        currency:
+          type: string
+        display:
+          type: string
+
+    CancellationPolicy:
+      type: object
+      properties:
+        cancellableOnline:
+          type: boolean
+        cancellableOffline:
+          type: boolean
+        amendable:
+          type: boolean
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CancellationTier'
+        fullyRefundable:
+          type: boolean
+
+    CancellationTier:
+      type: object
+      properties:
+        hoursNotice:
+          type: integer
+        refundPercent:
+          type: integer
+
+    AmenityDto:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          $ref: '#/components/schemas/Money'
+
+    SupplierStatusDto:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [SUCCESS, ERROR, TIMEOUT]
+        resultsCount:
+          type: integer
+        errorMessage:
+          type: string
+
+    BookResponse:
+      type: object
+      properties:
+        bookingId:
+          type: string
+          description: Signed booking ID
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, FAILED, CANCELLED, PRICE_CHANGED]
+        confirmationNumber:
+          type: string
+        totalPrice:
+          $ref: '#/components/schemas/Money'
+        pickupInstructions:
+          type: string
+        provider:
+          $ref: '#/components/schemas/ProviderContactDto'
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+        suggestedAction:
+          type: string
+
+    ProviderContactDto:
+      type: object
+      properties:
+        name:
+          type: string
+        contactPhone:
+          type: string
+
+    CancelResponse:
+      type: object
+      properties:
+        bookingId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, FAILED, CANCELLED, PRICE_CHANGED]
+        refundAmount:
+          $ref: '#/components/schemas/Money'
+        refundedAt:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+        suggestedAction:
+          type: string
+          description: Suggested action (e.g., RETRY, RE_SEARCH)
+        details:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+        requestId:
+          type: string
