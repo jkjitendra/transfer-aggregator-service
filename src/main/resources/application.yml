@@ -1,0 +1,114 @@
+# ============================================
+# Transfer Aggregator Service Configuration
+# ============================================
+
+server:
+  port: 8080
+
+
+spring:
+  application:
+    name: transfer-aggregator
+  
+  # Enable Virtual Threads (Java 21+)
+  threads:
+    virtual:
+      enabled: true
+  
+  # Jackson configuration
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: false
+    serialization:
+      write-dates-as-timestamps: false
+
+# ============================================
+# Transfer Aggregator Configuration
+# ============================================
+transfer:
+  aggregator:
+    # Mode: stub (default) or real
+    mode: ${AGGREGATOR_MODE:stub}
+    
+    # Global timeout for all operations (search, book, cancel)
+    global-timeout-seconds: 10
+    
+    # Supplier configurations - enable/disable suppliers here
+    suppliers:
+      stub:
+        enabled: ${STUB_ENABLED:true}
+      slow-stub:
+        enabled: ${SLOW_STUB_ENABLED:true}
+      mozio:
+        enabled: ${MOZIO_ENABLED:true}
+        base-url: ${MOZIO_BASE_URL:https://api-testing.mozio.com}
+        api-key: ${MOZIO_API_KEY:}
+        # Polling configuration
+        poll-interval-ms: 2000
+        max-poll-attempts: 5
+        # Mozio Search results validity (20 minutes)
+        search-validity-minutes: 20
+        # HTTP timeouts
+        initial-request-timeout-seconds: 10
+        poll-response-timeout-seconds: 5
+      skyride:
+        enabled: ${SKYRIDE_ENABLED:true}
+    
+    # Resilience configuration
+    resilience:
+      # Maximum concurrent supplier calls
+      max-concurrent-calls: 50
+      # Rate limit per minute for search requests
+      search-rate-limit-per-minute: 80
+      # Rate limit per minute for poll requests per searchId
+      poll-rate-limit-per-minute: 25
+
+# Token signing for offerId/bookingId
+security:
+  token:
+    # HMAC-SHA256 secret key
+    secret: ${TOKEN_SECRET:57fd0a434be5ba1dc468f69ee204c70328ceb8cac56d6f3e70cd39c49ce5f7d4}
+
+# ============================================
+# Observability Configuration
+# ============================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: transfer-aggregator
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+# ============================================
+# Logging Configuration
+# ============================================
+logging:
+  level:
+    root: INFO
+    com.arcube.transferaggregator: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{requestId:-}] %logger{36} - %msg%n"
+
+# ============================================
+# OpenAPI/Swagger Configuration
+# ============================================
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    url: /openapi.yaml
