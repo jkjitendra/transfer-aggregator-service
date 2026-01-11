@@ -83,7 +83,7 @@ The application is configured via `application.yml`. Key environment variables:
 
 ### Interactive Docs (Swagger UI)
 Once running, verify the API is up:
-**[http://localhost:8080/swagger-ui/index.html](http://localhost:8080)** (Redirects to Swagger UI)
+**[http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)** (Redirects to Swagger UI)
 
 ### Core Endpoints
 
