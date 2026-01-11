@@ -36,6 +36,15 @@ Adding a new supplier (e.g., "SkyRide") is straightforward:
 
 ## Getting Started
 
+### Clone & Setup
+```bash
+# Clone the repository
+git clone https://github.com/jkjitendra/transfer-aggregator-service.git
+
+# Navigate into the project directory
+cd transfer-aggregator-service
+```
+
 ### Prerequisites
 - **Java 21+** installed (`java -version`)
 - **Maven** (wrapper included)
