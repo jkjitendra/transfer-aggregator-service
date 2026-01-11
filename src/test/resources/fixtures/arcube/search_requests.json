@@ -1,0 +1,163 @@
+{
+  "scenarios": {
+    "S-001_valid_address_search": {
+      "description": "Search with valid street addresses",
+      "request": {
+        "pickupLocation": {
+          "address": "433 Park Avenue, New York, NY 10022"
+        },
+        "dropoffLocation": {
+          "address": "John F. Kennedy International Airport, Queens, NY 11430"
+        },
+        "pickupDateTime": "2026-08-16T15:30:00",
+        "numPassengers": 2,
+        "numBags": 2,
+        "currency": "USD",
+        "mode": "ONE_WAY"
+      },
+      "expectedStatus": 200,
+      "expectedOffersMinCount": 1
+    },
+    "S-002_iata_airport_search": {
+      "description": "Search from address to airport using IATA code",
+      "request": {
+        "pickupLocation": {
+          "address": "Times Square, New York, NY"
+        },
+        "dropoffLocation": {
+          "iataCode": "JFK"
+        },
+        "pickupDateTime": "2026-08-20T10:00:00",
+        "numPassengers": 3,
+        "numBags": 4,
+        "currency": "USD",
+        "mode": "ONE_WAY"
+      },
+      "expectedStatus": 200
+    },
+    "S-003_coordinates_search": {
+      "description": "Search using latitude/longitude coordinates",
+      "request": {
+        "pickupLocation": {
+          "latitude": 40.7580,
+          "longitude": -73.9855
+        },
+        "dropoffLocation": {
+          "latitude": 40.6413,
+          "longitude": -73.7781
+        },
+        "pickupDateTime": "2026-09-01T14:00:00",
+        "numPassengers": 1,
+        "numBags": 1,
+        "currency": "EUR",
+        "mode": "ONE_WAY"
+      },
+      "expectedStatus": 200
+    },
+    "S-005_round_trip": {
+      "description": "Round trip search",
+      "request": {
+        "pickupLocation": {
+          "iataCode": "LAX"
+        },
+        "dropoffLocation": {
+          "address": "Beverly Hills, CA 90210"
+        },
+        "pickupDateTime": "2026-10-15T09:00:00",
+        "numPassengers": 4,
+        "numBags": 6,
+        "currency": "USD",
+        "mode": "ROUND_TRIP"
+      },
+      "expectedStatus": 200
+    },
+    "S-006_large_party": {
+      "description": "Search for large group (8 passengers)",
+      "request": {
+        "pickupLocation": {
+          "iataCode": "ORD"
+        },
+        "dropoffLocation": {
+          "address": "Downtown Chicago, IL"
+        },
+        "pickupDateTime": "2026-11-20T18:00:00",
+        "numPassengers": 8,
+        "numBags": 10,
+        "currency": "USD",
+        "mode": "ONE_WAY"
+      },
+      "expectedStatus": 200,
+      "note": "Should return vehicles with capacity >= 8"
+    }
+  },
+  "validation_errors": {
+    "S-101_missing_pickup": {
+      "description": "Missing pickup location",
+      "request": {
+        "dropoffLocation": {
+          "iataCode": "JFK"
+        },
+        "pickupDateTime": "2026-08-16T15:30:00",
+        "numPassengers": 2
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "S-102_missing_dropoff": {
+      "description": "Missing dropoff location",
+      "request": {
+        "pickupLocation": {
+          "address": "123 Main St"
+        },
+        "pickupDateTime": "2026-08-16T15:30:00",
+        "numPassengers": 2
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "S-103_missing_datetime": {
+      "description": "Missing pickup date/time",
+      "request": {
+        "pickupLocation": {
+          "address": "123 Main St"
+        },
+        "dropoffLocation": {
+          "iataCode": "JFK"
+        },
+        "numPassengers": 2
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "S-104_zero_passengers": {
+      "description": "Zero passengers",
+      "request": {
+        "pickupLocation": {
+          "address": "123 Main St"
+        },
+        "dropoffLocation": {
+          "iataCode": "JFK"
+        },
+        "pickupDateTime": "2026-08-16T15:30:00",
+        "numPassengers": 0
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "S-106_address_too_long": {
+      "description": "Address exceeds 500 character limit",
+      "request": {
+        "pickupLocation": {
+          "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "dropoffLocation": {
+          "iataCode": "JFK"
+        },
+        "pickupDateTime": "2025-08-16T15:30:00",
+        "numPassengers": 2
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    }
+  }
+}

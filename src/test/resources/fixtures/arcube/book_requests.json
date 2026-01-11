@@ -1,0 +1,165 @@
+{
+  "scenarios": {
+    "B-001_valid_booking": {
+      "description": "Book with valid offer ID and passenger details",
+      "request": {
+        "offerId": "{{VALID_OFFER_ID}}",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john.doe@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        },
+        "flight": {
+          "airline": "AA",
+          "flightNumber": "123"
+        },
+        "specialInstructions": "Please wait at arrivals exit 3"
+      },
+      "headers": {
+        "Idempotency-Key": "booking-{{UUID}}"
+      },
+      "expectedStatus": 200,
+      "expectedBookingStatus": "CONFIRMED"
+    },
+    "B-003_extra_passengers": {
+      "description": "Book with extra passengers",
+      "request": {
+        "offerId": "{{VALID_OFFER_ID}}",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john.doe@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        },
+        "extraPassengers": [
+          {
+            "firstName": "Jane",
+            "lastName": "Doe"
+          },
+          {
+            "firstName": "Jimmy",
+            "lastName": "Doe"
+          }
+        ],
+        "flight": {
+          "airline": "UA",
+          "flightNumber": "456"
+        }
+      },
+      "expectedStatus": 200
+    },
+    "B-005_idempotent_booking": {
+      "description": "Same Idempotency-Key returns same booking",
+      "request": {
+        "offerId": "{{VALID_OFFER_ID}}",
+        "passenger": {
+          "firstName": "Alice",
+          "lastName": "Smith",
+          "email": "alice@example.com",
+          "phoneNumber": "+18005559999",
+          "countryCode": "US"
+        }
+      },
+      "headers": {
+        "Idempotency-Key": "fixed-key-12345"
+      },
+      "expectedStatus": 200,
+      "note": "Second call with same key should return identical response"
+    }
+  },
+  "token_errors": {
+    "B-101_invalid_format": {
+      "description": "Invalid offer ID format",
+      "request": {
+        "offerId": "not-a-valid-token",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "INVALID_TOKEN"
+    },
+    "B-102_tampered_signature": {
+      "description": "Tampered offer ID signature",
+      "request": {
+        "offerId": "eyJzdXAiOiJNT1pJTyIsInNpZCI6ImFiYzEyMyIsInJpZCI6Inh5ejc4OSIsImV4cCI6MTczNjUyMDAwMCwiaWF0IjoxNzM2NTE5MDAwfQ.TAMPERED_SIGNATURE",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "INVALID_TOKEN"
+    },
+    "B-103_expired_offer": {
+      "description": "Expired offer ID (exp in past)",
+      "request": {
+        "offerId": "{{EXPIRED_OFFER_ID}}",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 410,
+      "expectedErrorCode": "OFFER_EXPIRED"
+    }
+  },
+  "validation_errors": {
+    "B-201_missing_offer_id": {
+      "description": "Missing offer ID",
+      "request": {
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "john@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "B-202_missing_first_name": {
+      "description": "Missing passenger first name",
+      "request": {
+        "offerId": "{{VALID_OFFER_ID}}",
+        "passenger": {
+          "lastName": "Doe",
+          "email": "john@example.com",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    },
+    "B-205_invalid_email": {
+      "description": "Invalid email format",
+      "request": {
+        "offerId": "{{VALID_OFFER_ID}}",
+        "passenger": {
+          "firstName": "John",
+          "lastName": "Doe",
+          "email": "not-an-email",
+          "phoneNumber": "+18005551234",
+          "countryCode": "US"
+        }
+      },
+      "expectedStatus": 400,
+      "expectedErrorCode": "VALIDATION_ERROR"
+    }
+  }
+}

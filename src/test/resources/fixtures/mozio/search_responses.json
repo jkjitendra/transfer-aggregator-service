@@ -1,0 +1,257 @@
+{
+  "I-001_single_poll_success": {
+    "description": "Search completes on first response (moreComing=false)",
+    "response": {
+      "search_id": "mozio-search-001",
+      "more_coming": false,
+      "results": [
+        {
+          "result_id": "result-sedan-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Toyota",
+                "model": "Camry",
+                "type": "sedan",
+                "image": "https://images.mozio.com/vehicles/sedan.png",
+                "max_passengers": 3,
+                "max_luggage": 3
+              },
+              "details": {
+                "provider": {
+                  "name": "Carzen+",
+                  "rating": 4.8,
+                  "phone": "+1234567890"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 89.99,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": true,
+            "refund_rules": [
+              {
+                "hours_before": 24,
+                "refund_percent": 100
+              },
+              {
+                "hours_before": 12,
+                "refund_percent": 50
+              }
+            ]
+          }
+        },
+        {
+          "result_id": "result-suv-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Ford",
+                "model": "Explorer",
+                "type": "suv",
+                "image": "https://images.mozio.com/vehicles/suv.png",
+                "max_passengers": 6,
+                "max_luggage": 5
+              },
+              "details": {
+                "provider": {
+                  "name": "Premium Rides",
+                  "rating": 4.5,
+                  "phone": "+1987654321"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 149.99,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": true,
+            "refund_rules": [
+              {
+                "hours_before": 48,
+                "refund_percent": 100
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "I-002_multi_poll_initial": {
+    "description": "Initial search response with moreComing=true",
+    "response": {
+      "search_id": "mozio-search-002",
+      "more_coming": true,
+      "results": [
+        {
+          "result_id": "result-economy-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Honda",
+                "model": "Civic",
+                "type": "economy",
+                "max_passengers": 3,
+                "max_luggage": 2
+              },
+              "details": {
+                "provider": {
+                  "name": "Budget Transfer",
+                  "rating": 4.2,
+                  "phone": "+1555123456"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 59.99,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": true,
+            "refund_rules": []
+          }
+        }
+      ]
+    }
+  },
+  "I-002_multi_poll_final": {
+    "description": "Poll response with moreComing=false (additional results)",
+    "response": {
+      "search_id": "mozio-search-002",
+      "more_coming": false,
+      "results": [
+        {
+          "result_id": "result-luxury-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Mercedes",
+                "model": "S-Class",
+                "type": "luxury",
+                "max_passengers": 3,
+                "max_luggage": 3
+              },
+              "details": {
+                "provider": {
+                  "name": "Executive Limos",
+                  "rating": 4.9,
+                  "phone": "+1800999888"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 299.99,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": true,
+            "refund_rules": [
+              {
+                "hours_before": 72,
+                "refund_percent": 100
+              },
+              {
+                "hours_before": 24,
+                "refund_percent": 75
+              }
+            ]
+          }
+        },
+        {
+          "result_id": "result-van-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Mercedes",
+                "model": "Sprinter",
+                "type": "van",
+                "max_passengers": 10,
+                "max_luggage": 10
+              },
+              "details": {
+                "provider": {
+                  "name": "Group Transport Co",
+                  "rating": 4.6,
+                  "phone": "+1800777666"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 199.99,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": false,
+            "refund_rules": []
+          }
+        }
+      ]
+    }
+  },
+  "I-003_poll_always_more_coming": {
+    "description": "Response that always has moreComing=true (for timeout testing)",
+    "response": {
+      "search_id": "mozio-search-timeout",
+      "more_coming": true,
+      "results": [
+        {
+          "result_id": "result-partial-001",
+          "steps": [
+            {
+              "vehicle": {
+                "make": "Generic",
+                "model": "Car",
+                "type": "sedan",
+                "max_passengers": 4,
+                "max_luggage": 2
+              },
+              "details": {
+                "provider": {
+                  "name": "Slow Provider",
+                  "rating": 3.5,
+                  "phone": "+1111111111"
+                }
+              }
+            }
+          ],
+          "total_price": {
+            "total_price": {
+              "value": 75.00,
+              "currency": "USD"
+            }
+          },
+          "cancellation_policy": {
+            "is_cancellable": true,
+            "refund_rules": []
+          }
+        }
+      ]
+    }
+  },
+  "empty_results": {
+    "description": "No results found for location",
+    "response": {
+      "search_id": "mozio-search-empty",
+      "more_coming": false,
+      "results": []
+    }
+  }
+}

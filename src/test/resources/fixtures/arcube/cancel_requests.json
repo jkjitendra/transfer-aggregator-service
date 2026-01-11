@@ -1,0 +1,45 @@
+{
+  "scenarios": {
+    "C-001_valid_cancel": {
+      "description": "Cancel a confirmed booking",
+      "bookingId": "{{VALID_BOOKING_ID}}",
+      "expectedStatus": 200,
+      "expectedCancelStatus": "CANCELLED"
+    },
+    "C-004_idempotent_cancel": {
+      "description": "Cancel already cancelled booking (idempotent)",
+      "bookingId": "{{ALREADY_CANCELLED_BOOKING_ID}}",
+      "expectedStatus": 200,
+      "expectedCancelStatus": "CANCELLED",
+      "note": "Should return success even if already cancelled"
+    }
+  },
+  "token_errors": {
+    "C-101_invalid_format": {
+      "description": "Invalid booking ID format",
+      "bookingId": "not-a-valid-booking-id",
+      "expectedStatus": 400,
+      "expectedErrorCode": "INVALID_TOKEN"
+    },
+    "C-102_tampered_signature": {
+      "description": "Tampered booking ID signature",
+      "bookingId": "eyJzdXAiOiJNT1pJTyIsInJpZCI6InJlczEyMyIsImNuZiI6Ik1aMTIzNDU2In0.TAMPERED",
+      "expectedStatus": 400,
+      "expectedErrorCode": "INVALID_TOKEN"
+    }
+  },
+  "policy_errors": {
+    "C-201_too_late": {
+      "description": "Cancel past the cutoff time",
+      "bookingId": "{{BOOKING_PAST_CUTOFF}}",
+      "expectedStatus": 409,
+      "expectedErrorCode": "CANCELLATION_NOT_ALLOWED"
+    },
+    "C-202_non_cancellable": {
+      "description": "Booking that cannot be cancelled",
+      "bookingId": "{{NON_CANCELLABLE_BOOKING}}",
+      "expectedStatus": 409,
+      "expectedErrorCode": "CANCELLATION_NOT_ALLOWED"
+    }
+  }
+}

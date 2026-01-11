@@ -1,0 +1,75 @@
+{
+  "rate_limit_exceeded": {
+    "description": "Rate limit (429) response",
+    "response": {
+      "error": {
+        "code": "rate_limit_exceeded",
+        "message": "You have exceeded the rate limit. Please try again later.",
+        "retry_after": 60
+      }
+    },
+    "http_status": 429,
+    "headers": {
+      "Retry-After": "60"
+    }
+  },
+  "unauthorized": {
+    "description": "Invalid API key",
+    "response": {
+      "error": {
+        "code": "unauthorized",
+        "message": "Invalid API key provided."
+      }
+    },
+    "http_status": 401
+  },
+  "server_error": {
+    "description": "Internal server error (retryable)",
+    "response": {
+      "error": {
+        "code": "internal_error",
+        "message": "An internal error occurred. Please try again."
+      }
+    },
+    "http_status": 500
+  },
+  "service_unavailable": {
+    "description": "Service temporarily unavailable (retryable)",
+    "response": {
+      "error": {
+        "code": "service_unavailable",
+        "message": "Service is temporarily unavailable."
+      }
+    },
+    "http_status": 503,
+    "headers": {
+      "Retry-After": "30"
+    }
+  },
+  "bad_request_generic": {
+    "description": "Generic bad request",
+    "response": {
+      "error": {
+        "code": "bad_request",
+        "message": "Invalid request parameters."
+      }
+    },
+    "http_status": 400
+  },
+  "invalid_location": {
+    "description": "Location not serviceable",
+    "response": {
+      "error": {
+        "code": "invalid_location",
+        "message": "We do not currently service this location."
+      }
+    },
+    "http_status": 400
+  },
+  "timeout_simulation": {
+    "description": "Simulates a timeout (for WireMock delay)",
+    "delay_ms": 30000,
+    "response": null,
+    "note": "WireMock should configure a fixed delay longer than client timeout"
+  }
+}

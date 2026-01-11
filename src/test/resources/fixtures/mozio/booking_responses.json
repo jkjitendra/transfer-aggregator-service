@@ -1,0 +1,89 @@
+{
+  "I-101_immediate_confirmation": {
+    "description": "Booking confirmed immediately",
+    "response": {
+      "status": "completed",
+      "reservations": [
+        {
+          "id": "mozio-res-001",
+          "confirmation_number": "MZ123456",
+          "status": "confirmed",
+          "pickup_instructions": "Driver will meet you at Terminal 4 arrivals exit. Look for driver holding a sign with your name."
+        }
+      ]
+    }
+  },
+  "I-102_pending_then_confirmed": {
+    "description": "Booking initially pending, then confirmed on poll",
+    "initial_response": {
+      "status": "pending",
+      "reservations": [
+        {
+          "id": "mozio-res-002",
+          "confirmation_number": null,
+          "status": "pending"
+        }
+      ]
+    },
+    "poll_response": {
+      "status": "completed",
+      "reservations": [
+        {
+          "id": "mozio-res-002",
+          "confirmation_number": "MZ789012",
+          "status": "confirmed",
+          "pickup_instructions": "Meet driver at designated pickup zone B3."
+        }
+      ]
+    }
+  },
+  "I-103_search_expired": {
+    "description": "Search has expired (20 min timeout)",
+    "response": {
+      "error": {
+        "code": "search_expired",
+        "message": "The search has expired. Please create a new search."
+      }
+    },
+    "http_status": 400
+  },
+  "I-104_price_changed": {
+    "description": "Price changed since search",
+    "response": {
+      "error": {
+        "code": "trip_price_changed",
+        "message": "The price for this trip has changed. Please search again.",
+        "new_price": {
+          "value": 99.99,
+          "currency": "USD"
+        }
+      }
+    },
+    "http_status": 400
+  },
+  "duplicate_reservation": {
+    "description": "Duplicate reservation (same partner_tracking_id)",
+    "response": {
+      "error": {
+        "code": "duplicate_reservation",
+        "message": "A reservation with this tracking ID already exists.",
+        "existing_reservation_id": "mozio-res-existing"
+      }
+    },
+    "http_status": 400
+  },
+  "booking_failed": {
+    "description": "Booking failed at supplier",
+    "response": {
+      "status": "failed",
+      "reservations": [
+        {
+          "id": null,
+          "confirmation_number": null,
+          "status": "failed",
+          "error_message": "Provider could not confirm this booking at this time."
+        }
+      ]
+    }
+  }
+}

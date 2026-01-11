@@ -1,0 +1,68 @@
+{
+  "I-201_successful_cancel": {
+    "description": "Successful cancellation",
+    "response": {
+      "status": "cancelled",
+      "reservation_id": "mozio-res-001",
+      "refund_amount": {
+        "value": 89.99,
+        "currency": "USD"
+      },
+      "message": "Reservation has been cancelled successfully. Full refund will be processed within 5-7 business days."
+    },
+    "http_status": 200
+  },
+  "I-202_already_cancelled": {
+    "description": "Reservation was already cancelled",
+    "response": {
+      "error": {
+        "code": "res_already_canceled",
+        "message": "This reservation has already been cancelled.",
+        "cancelled_at": "2026-01-10T10:30:00Z"
+      }
+    },
+    "http_status": 400
+  },
+  "I-203_too_late_to_cancel": {
+    "description": "Past cancellation window",
+    "response": {
+      "error": {
+        "code": "too_late_to_cancel",
+        "message": "It is too late to cancel this reservation. The cancellation window has passed.",
+        "cancellation_deadline": "2026-01-09T15:30:00Z"
+      }
+    },
+    "http_status": 400
+  },
+  "partial_refund": {
+    "description": "Cancellation with partial refund",
+    "response": {
+      "status": "cancelled",
+      "reservation_id": "mozio-res-partial",
+      "refund_amount": {
+        "value": 44.99,
+        "currency": "USD"
+      },
+      "original_amount": {
+        "value": 89.99,
+        "currency": "USD"
+      },
+      "refund_percentage": 50,
+      "message": "Reservation cancelled. 50% refund applied due to cancellation less than 24 hours before pickup."
+    },
+    "http_status": 200
+  },
+  "no_refund": {
+    "description": "Cancellation with no refund",
+    "response": {
+      "status": "cancelled",
+      "reservation_id": "mozio-res-norefund",
+      "refund_amount": {
+        "value": 0,
+        "currency": "USD"
+      },
+      "message": "Reservation cancelled. No refund available for cancellations less than 2 hours before pickup."
+    },
+    "http_status": 200
+  }
+}
