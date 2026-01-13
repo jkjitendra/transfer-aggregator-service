@@ -16,8 +16,6 @@ public class SecurityConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
         
-        // In production, replace with specific allowed origins
-        // config.setAllowedOrigins(List.of("https://your-frontend.com"));
         config.setAllowedOriginPatterns(List.of("*")); // Dev only - restrict in prod
         
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

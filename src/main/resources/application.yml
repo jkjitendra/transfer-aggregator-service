@@ -22,6 +22,14 @@ spring:
       fail-on-unknown-properties: false
     serialization:
       write-dates-as-timestamps: false
+  
+  # Redis configuration for distributed caching
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
 
 # ============================================
 # Transfer Aggregator Configuration

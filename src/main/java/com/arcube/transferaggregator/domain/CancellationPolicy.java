@@ -1,5 +1,6 @@
 package com.arcube.transferaggregator.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Builder;
 import java.util.List;
 
@@ -13,7 +14,9 @@ public record CancellationPolicy(
 ) {
     public record CancellationTier(int hoursNotice, int refundPercent) {}
     
+    @JsonIgnore
     public boolean isFullyRefundable() {
         return tiers != null && tiers.stream().anyMatch(t -> t.refundPercent() == 100);
     }
 }
+
