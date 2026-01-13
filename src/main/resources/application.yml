@@ -79,6 +79,43 @@ security:
     secret: ${TOKEN_SECRET:57fd0a434be5ba1dc468f69ee204c70328ceb8cac56d6f3e70cd39c49ce5f7d4}
 
 # ============================================
+# Resilience4j Circuit Breaker Configuration
+# ============================================
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientException
+    instances:
+      STUB:
+        baseConfig: default
+      SKYRIDE:
+        baseConfig: default
+      SLOW_STUB:
+        baseConfig: default
+        waitDurationInOpenState: 60s
+      MOZIO:
+        baseConfig: default
+        slidingWindowSize: 20
+        failureRateThreshold: 40
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
+
+# ============================================
 # Observability Configuration
 # ============================================
 management:
