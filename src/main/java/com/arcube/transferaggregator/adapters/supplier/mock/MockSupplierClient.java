@@ -134,6 +134,14 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
         OfferPayload payload = OfferPayload.of(SUPPLIER_CODE, searchId, resultId, expiresAt);
         String offerId = offerIdCodec.encode(payload);
         
+        // Simulate varying distances (Mozio provides distance_meters)
+        int distanceMeters = switch (vehicleType) {
+            case "Standard Sedan" -> 15200;       // ~15km
+            case "SUV" -> 18500;                  // ~18km
+            case "Executive Sedan" -> 12800;      // ~13km (closer luxury)
+            default -> 16000;
+        };
+        
         return Offer.builder()
             .offerId(offerId)
             .supplierCode(SUPPLIER_CODE)
@@ -161,6 +169,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
                 ))
                 .build())
             .estimatedDurationMinutes(35)
+            .distanceMeters(distanceMeters)
             .flightInfoRequired(true)
             .extraPassengerInfoRequired(false)
             .expiresAt(expiresAt)
