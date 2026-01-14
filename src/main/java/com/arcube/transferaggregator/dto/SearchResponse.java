@@ -19,6 +19,13 @@ public class SearchResponse {
     private boolean incomplete;
     private Map<String, SupplierStatusDto> supplierStatuses;
     
+    // Pagination metadata
+    private Integer totalCount;
+    private Integer page;
+    private Integer totalPages;
+    private Boolean hasNext;
+    private Boolean hasPrevious;
+    
     @Data
     @Builder
     @NoArgsConstructor
@@ -31,6 +38,7 @@ public class SearchResponse {
         private Money totalPrice;
         private CancellationPolicy cancellation;
         private int estimatedDurationMinutes;
+        private Integer distanceMeters;        // Mozio: distance_meters
         private boolean flightInfoRequired;
         private boolean extraPassengerInfoRequired;
         private Instant expiresAt;

@@ -160,6 +160,7 @@ public class TransferSearchService {
             .offerId(o.offerId()).supplierCode(o.supplierCode())
             .vehicle(o.vehicle()).provider(o.provider()).totalPrice(o.totalPrice())
             .cancellation(o.cancellation()).estimatedDurationMinutes(o.estimatedDurationMinutes())
+            .distanceMeters(o.distanceMeters())
             .flightInfoRequired(o.flightInfoRequired()).extraPassengerInfoRequired(o.extraPassengerInfoRequired())
             .expiresAt(o.expiresAt())
             .includedAmenities(o.includedAmenities() != null ? o.includedAmenities().stream().map(Amenity::key).toList() : List.of())

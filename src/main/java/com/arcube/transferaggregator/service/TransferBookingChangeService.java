@@ -185,6 +185,7 @@ public class TransferBookingChangeService {
             .totalPrice(o.totalPrice())
             .cancellation(o.cancellation())
             .estimatedDurationMinutes(o.estimatedDurationMinutes())
+            .distanceMeters(o.distanceMeters())
             .flightInfoRequired(o.flightInfoRequired())
             .extraPassengerInfoRequired(o.extraPassengerInfoRequired())
             .expiresAt(o.expiresAt())

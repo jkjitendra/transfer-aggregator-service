@@ -3,9 +3,12 @@ package com.arcube.transferaggregator.service;
 import com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClient;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Offer;
+import com.arcube.transferaggregator.dto.PageRequest;
+import com.arcube.transferaggregator.dto.SearchFilter;
 import com.arcube.transferaggregator.dto.SearchResponse;
 import com.arcube.transferaggregator.dto.SearchResponse.OfferDto;
 import com.arcube.transferaggregator.dto.SearchResponse.SupplierStatusDto;
+import com.arcube.transferaggregator.dto.SearchSort;
 import com.arcube.transferaggregator.dto.SearchStateDto;
 import com.arcube.transferaggregator.ports.SupplierSearchResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -27,13 +30,16 @@ public class SearchPollingService {
     private final SlowMockSupplierClient slowMockClient;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final OfferFilterService filterService;
     
     public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
                                  StringRedisTemplate redisTemplate,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 OfferFilterService filterService) {
         this.slowMockClient = slowMockClient.orElse(null);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.filterService = filterService;
     }
     
     public void cacheSearchState(String searchId, SearchResponse response, 
@@ -57,7 +63,11 @@ public class SearchPollingService {
         }
     }
     
-    public SearchResponse poll(String searchId) {
+    /**
+     * Poll with filtering, sorting, and pagination.
+     */
+    public SearchResponse poll(String searchId, SearchFilter filter, 
+                                SearchSort sort, PageRequest page) {
         String cacheKey = CACHE_PREFIX + searchId;
         String json = redisTemplate.opsForValue().get(cacheKey);
         
@@ -68,6 +78,9 @@ public class SearchPollingService {
                 .offers(List.of())
                 .incomplete(false)
                 .supplierStatuses(Map.of())
+                .totalCount(0)
+                .page(0)
+                .totalPages(0)
                 .build();
         }
         
@@ -84,13 +97,9 @@ public class SearchPollingService {
                 .build();
         }
         
-        if (!state.isIncomplete()) {
-            return buildResponse(searchId, state);
-        }
-        
-        // Poll slow supplier
+        // Poll slow supplier if still incomplete
         boolean stillIncomplete = false;
-        if (slowMockClient != null) {
+        if (state.isIncomplete() && slowMockClient != null) {
             String slowSearchId = state.getSupplierSearchIds().get("SLOW_STUB");
             if (slowSearchId != null && slowMockClient.hasSearch(slowSearchId)) {
                 SupplierSearchResult result = slowMockClient.poll(slowSearchId);
@@ -109,6 +118,7 @@ public class SearchPollingService {
         
         state.setIncomplete(stillIncomplete);
         
+        // Update cache
         try {
             String updatedJson = objectMapper.writeValueAsString(state);
             redisTemplate.opsForValue().set(cacheKey, updatedJson, CACHE_TTL);
@@ -116,17 +126,32 @@ public class SearchPollingService {
             log.error("Failed to update cache: {}", e.getMessage());
         }
         
-        log.info("Poll {}: {} offers, incomplete={}", searchId, state.getOffers().size(), stillIncomplete);
-        return buildResponse(searchId, state);
-    }
-    
-    private SearchResponse buildResponse(String searchId, SearchStateDto state) {
+        // Apply filtering, sorting, pagination
+        OfferFilterService.FilterResult filterResult = 
+            filterService.filterAndSort(state.getOffers(), filter, sort, page);
+        
+        log.info("Poll {}: {} total offers, {} after filter, page {}/{}", 
+            searchId, state.getOffers().size(), filterResult.getOffers().size(), 
+            page.getPage() + 1, filterResult.getTotalPages());
+        
         return SearchResponse.builder()
             .searchId(searchId)
-            .offers(new ArrayList<>(state.getOffers()))
-            .incomplete(state.isIncomplete())
+            .offers(filterResult.getOffers())
+            .incomplete(stillIncomplete)
             .supplierStatuses(new HashMap<>(state.getStatuses()))
+            .totalCount(filterResult.getTotalCount())
+            .page(filterResult.getPage())
+            .totalPages(filterResult.getTotalPages())
+            .hasNext(filterResult.isHasNext())
+            .hasPrevious(filterResult.isHasPrevious())
             .build();
+    }
+    
+    /**
+     * Backward compatible poll without filters.
+     */
+    public SearchResponse poll(String searchId) {
+        return poll(searchId, null, SearchSort.byPrice(), PageRequest.first());
     }
     
     private OfferDto mapToDto(Offer o) {
@@ -134,6 +159,7 @@ public class SearchPollingService {
             .offerId(o.offerId()).supplierCode(o.supplierCode())
             .vehicle(o.vehicle()).provider(o.provider()).totalPrice(o.totalPrice())
             .cancellation(o.cancellation()).estimatedDurationMinutes(o.estimatedDurationMinutes())
+            .distanceMeters(o.distanceMeters())
             .flightInfoRequired(o.flightInfoRequired()).extraPassengerInfoRequired(o.extraPassengerInfoRequired())
             .expiresAt(o.expiresAt())
             .includedAmenities(o.includedAmenities() != null ? 
