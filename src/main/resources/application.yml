@@ -71,6 +71,42 @@ transfer:
       search-rate-limit-per-minute: 80
       # Rate limit per minute for poll requests per searchId
       poll-rate-limit-per-minute: 25
+    
+    # Multi-tenant configuration
+    default-tenant: default
+    tenants:
+      default:
+        name: "Default Tenant"
+        enabled: true
+        # Empty enabled-suppliers = all suppliers allowed
+        
+      tenant-a:
+        name: "Travel Partner A"
+        enabled: true
+        enabled-suppliers:
+          - STUB
+          - MOZIO
+        default-currency: USD
+        max-results-per-supplier: 10
+        
+      tenant-b:
+        name: "Travel Partner B"
+        enabled: true
+        enabled-suppliers:
+          - SKYRIDE
+          - SLOW_STUB
+        default-currency: EUR
+        
+      tenant-premium:
+        name: "Premium Partner"
+        enabled: true
+        enabled-suppliers:
+          - STUB
+          - SKYRIDE
+          - MOZIO
+          - SLOW_STUB
+        default-currency: USD
+        max-results-per-supplier: 50
 
 # Token signing for offerId/bookingId
 security:

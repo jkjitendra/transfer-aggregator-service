@@ -1,6 +1,8 @@
 package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.config.AggregatorProperties;
+import com.arcube.transferaggregator.config.TenantConfig;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.domain.*;
 import com.arcube.transferaggregator.dto.SearchRequest;
 import com.arcube.transferaggregator.dto.SearchResponse;
@@ -33,15 +35,23 @@ public class TransferSearchService {
     private final RateLimiter rateLimiter;
     private final SearchPollingService pollingService;
     private final SupplierCircuitBreaker circuitBreaker;
+    private final TenantConfig tenantConfig;
     
     public SearchResponse search(SearchRequest request) {
         var searchId = UUID.randomUUID().toString();
         var deadline = Instant.now().plusSeconds(properties.getGlobalTimeoutSeconds());
         var command = mapToCommand(request);
         
-        List<TransferSupplier> suppliers = supplierRegistry.getEnabledSuppliers();
-        log.info("Search {}: {} suppliers enabled, bulkhead permits={}", 
-            searchId, suppliers.size(), bulkhead.availablePermits());
+        // Get current tenant from context
+        String tenantId = TenantContext.getTenantIdOrDefault(tenantConfig.getDefaultTenant());
+        
+        // Filter suppliers by tenant configuration
+        List<TransferSupplier> suppliers = supplierRegistry.getEnabledSuppliers().stream()
+            .filter(s -> tenantConfig.isSupplierEnabled(tenantId, s.getSupplierCode()))
+            .toList();
+        
+        log.info("Search {}: tenant={}, {} suppliers enabled, bulkhead permits={}", 
+            searchId, tenantId, suppliers.size(), bulkhead.availablePermits());
         
         if (suppliers.isEmpty()) {
             return SearchResponse.builder()
