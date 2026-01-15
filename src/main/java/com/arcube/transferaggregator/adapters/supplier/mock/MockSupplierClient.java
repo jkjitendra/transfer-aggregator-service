@@ -142,6 +142,16 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
             default -> 16000;
         };
         
+        // Available amenities with prices (Mozio-aligned)
+        List<Amenity> availableAmenities = List.of(
+            Amenity.available("meet_and_greet", "Meet & Greet", Money.of(30.00, "USD")),
+            Amenity.available("baby_seats", "Baby Seats (1-4 years)", Money.of(15.00, "USD")),
+            Amenity.available("child_booster", "Child Booster (4-8 years)", Money.of(15.00, "USD")),
+            Amenity.available("wifi", "WiFi", Money.of(5.00, "USD")),
+            Amenity.available("extra_waiting_time_thirty_min", "30 Min Extra Wait", Money.of(20.00, "USD")),
+            Amenity.available("sms_notifications", "SMS Notifications", Money.of(1.99, "USD"))
+        );
+        
         return Offer.builder()
             .offerId(offerId)
             .supplierCode(SUPPLIER_CODE)
@@ -174,6 +184,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
             .extraPassengerInfoRequired(false)
             .expiresAt(expiresAt)
             .includedAmenities(List.of(Amenity.included("ride_tracking", "Ride Tracking")))
+            .availableAmenities(availableAmenities)
             .build();
     }
     
