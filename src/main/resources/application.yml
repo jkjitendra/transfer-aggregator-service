@@ -30,6 +30,19 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2000ms
+  
+  # Mail configuration for alerting
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
 
 # ============================================
 # Transfer Aggregator Configuration
@@ -107,6 +120,27 @@ transfer:
           - SLOW_STUB
         default-currency: USD
         max-results-per-supplier: 50
+    
+    # Alerting configuration
+    alerting:
+      enabled: ${ALERTING_ENABLED:false}
+      check-interval-seconds: 60
+      
+      # DLQ thresholds
+      dlq-warning-threshold: 10
+      dlq-critical-threshold: 50
+      
+      # Error rate thresholds (per minute)
+      error-rate-warning-threshold: 5
+      error-rate-critical-threshold: 20
+      
+      # Email configuration
+      email:
+        enabled: ${ALERTING_EMAIL_ENABLED:false}
+        from: ${ALERTING_EMAIL_FROM:alerts@arcube.com}
+        subject-prefix: "[Arcube Transfer Aggregator]"
+        recipients:
+          - ${ALERTING_EMAIL_TO:operations@arcube.com}
 
 # Token signing for offerId/bookingId
 security:
