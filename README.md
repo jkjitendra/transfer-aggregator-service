@@ -68,7 +68,7 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 ### Observability Features
 
 - **Metrics**: Exposed via `/actuator/prometheus`
-- **Health Probes**: Kubernetes-ready liveness/readiness at `/actuator/health`
+- **Health Probes**: Liveness/Readiness at `/actuator/health`
 - **Request Tracing**: `X-Request-Id` header propagation for distributed tracing
 - **Structured Logging**: JSON-compatible logs with `requestId` in MDC
 
@@ -846,7 +846,6 @@ tenants:
 | **Redis Integration** | Distributed caching configuration (Caffeine fallback) |
 | **OpenAPI 3.0 Spec** | Complete API documentation in `openapi.yaml` |
 | **Virtual Threads** | Java 21 Project Loom for high-throughput I/O |
-| **Kubernetes-Ready Health Probes** | Liveness/readiness endpoints |
 | **Prometheus Metrics** | Request histograms, error counters, DLQ gauges |
 
 ---
