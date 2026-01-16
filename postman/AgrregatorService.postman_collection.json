@@ -2,13 +2,63 @@
 	"info": {
 		"_postman_id": "545e29c8-082c-4b3c-9a3d-7aaf837c0789",
 		"name": "Transfer Aggregator Service",
-		"description": "Complete test collection for the Airport Transfer Aggregator API. Covers Search, Book, and Cancel flows with various scenarios.",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "31949509"
+		"description": "Complete test collection for the Airport Transfer Aggregator API. Covers all endpoints: Search, Polling, Pricing, Book, Cancel, Booking Change, and Alerts.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
-			"name": "1. Search API",
+			"name": "00 - Setup",
+			"item": [
+				{
+					"name": "Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Status is UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"actuator",
+								"health"
+							]
+						}
+					}
+				},
+				{
+					"name": "Prometheus Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/actuator/prometheus",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"actuator",
+								"prometheus"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "01 - Search",
 			"item": [
 				{
 					"name": "S-001 Valid Address Search",
@@ -17,43 +67,12 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Has offers', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.offers).to.be.an('array');",
-									"    pm.expect(json.offers.length).to.be.greaterThan(0);",
-									"});",
-									"",
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									"",
-									"// Save first offerId for booking tests",
-									"var json = pm.response.json();",
-									"if (json.offers && json.offers.length > 0) {",
-									"    pm.collectionVariables.set('offerId', json.offers[0].offerId);",
-									"    console.log('Saved offerId: ' + json.offers[0].offerId);",
-									"}"
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has offers', () => { var json = pm.response.json(); pm.expect(json.offers).to.be.an('array'); });",
+									"pm.test('Has searchId', () => { var json = pm.response.json(); pm.expect(json.searchId).to.be.a('string'); pm.collectionVariables.set('searchId', json.searchId); });",
+									"var json = pm.response.json(); if (json.offers && json.offers.length > 0) { pm.collectionVariables.set('offerId', json.offers[0].offerId); }"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						},
-						{
-							"listen": "prerequest",
-							"script": {
-								"exec": [
-									""
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -71,7 +90,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"433 Park Avenue, New York, NY 10022\"\n  },\n  \"dropoffLocation\": {\n    \"address\": \"JFK Airport, Queens, NY 11430\"\n  },\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2,\n  \"numBags\": 2,\n  \"currency\": \"USD\",\n  \"mode\": \"ONE_WAY\"\n}"
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"433 Park Avenue, New York, NY 10022\"},\n  \"dropoffLocation\": {\"address\": \"JFK Airport, Queens, NY 11430\"},\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2,\n  \"numBags\": 2,\n  \"currency\": \"USD\",\n  \"mode\": \"ONE_WAY\"\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/transfers/search",
@@ -85,17 +104,392 @@
 								"search"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "Polling Search",
+					"name": "S-002 IATA Airport Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has searchId', () => { var json = pm.response.json(); pm.expect(json.searchId).to.be.a('string'); });"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"Times Square, NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"pickupDateTime\": \"2026-08-20T10:00:00\",\n  \"numPassengers\": 3,\n  \"numBags\": 4,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-003 Coordinates Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has searchId', () => pm.expect(pm.response.json().searchId).to.be.a('string'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"latitude\": 40.7580, \"longitude\": -73.9855},\n  \"dropoffLocation\": {\"latitude\": 40.6413, \"longitude\": -73.7781},\n  \"pickupDateTime\": \"2026-09-01T14:00:00\",\n  \"numPassengers\": 1,\n  \"numBags\": 1,\n  \"currency\": \"EUR\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-004 Round Trip Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"iataCode\": \"LAX\"},\n  \"dropoffLocation\": {\"address\": \"Beverly Hills, CA 90210\"},\n  \"pickupDateTime\": \"2026-10-15T09:00:00\",\n  \"numPassengers\": 4,\n  \"numBags\": 6,\n  \"currency\": \"USD\",\n  \"mode\": \"ROUND_TRIP\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-005 Large Group (8 passengers)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"iataCode\": \"ORD\"},\n  \"dropoffLocation\": {\"address\": \"Downtown Chicago, IL\"},\n  \"pickupDateTime\": \"2026-11-20T18:00:00\",\n  \"numPassengers\": 8,\n  \"numBags\": 10,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-101 Missing Pickup Location (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Has error structure', () => { var json = pm.response.json(); pm.expect(json).to.have.property('code'); pm.expect(json).to.have.property('message'); });"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-102 Missing Dropoff Location (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"123 Main St\"},\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-103 Zero Passengers (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"123 Main St\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 0\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-104 Invalid IATA Too Long (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Validation error', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFKXX\"},\n  \"numPassengers\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "S-105 Address Too Long (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"numPassengers\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "02 - Polling",
+			"item": [
+				{
+					"name": "P-001 Basic Poll",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has offers array', () => pm.expect(pm.response.json().offers).to.be.an('array'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "GET",
 						"header": [
 							{
 								"key": "X-Request-Id",
-								"value": "4c2d1617-9207-4eae-ab0f-2ee35eb92dba"
+								"value": "{{$guid}}"
 							}
 						],
 						"url": {
@@ -112,35 +506,263 @@
 								"poll"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "S-002 IATA Airport Search",
+					"name": "P-002 Poll with Price Filter",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Has offers', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.offers).to.be.an('array');",
-									"});",
-									"",
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{searchId}}/poll?minPrice=50&maxPrice=500",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "minPrice",
+									"value": "50"
+								},
+								{
+									"key": "maxPrice",
+									"value": "500"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "P-003 Poll with Pagination",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{searchId}}/poll?page=0&size=5",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "0"
+								},
+								{
+									"key": "size",
+									"value": "5"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "P-004 Poll with Sort by Rating",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{searchId}}/poll?sortBy=RATING&sortDir=DESC",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "sortBy",
+									"value": "RATING"
+								},
+								{
+									"key": "sortDir",
+									"value": "DESC"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "P-005 Poll with Vehicle Filter",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{searchId}}/poll?vehicleTypes=sedan&vehicleTypes=suv",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "vehicleTypes",
+									"value": "sedan"
+								},
+								{
+									"key": "vehicleTypes",
+									"value": "suv"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "P-006 Poll Free Cancellation Only",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{searchId}}/poll?freeCancellationOnly=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "freeCancellationOnly",
+									"value": "true"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "P-101 Invalid SearchId (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error code INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/not-a-valid-search-id/poll",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"not-a-valid-search-id",
+								"poll"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "03 - Pricing",
+			"item": [
+				{
+					"name": "PR-001 Calculate Price (POST)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has totalPrice', () => pm.expect(pm.response.json().totalPrice).to.be.an('object'));"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -158,40 +780,31 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"Times Square, NYC\"\n  },\n  \"dropoffLocation\": {\n    \"iataCode\": \"JFK\"\n  },\n  \"pickupDateTime\": \"2026-08-20T10:00:00\",\n  \"numPassengers\": 3,\n  \"numBags\": 4,\n  \"currency\": \"USD\"\n}"
+							"raw": "{\n  \"searchId\": \"{{searchId}}\",\n  \"offerId\": \"{{offerId}}\",\n  \"amenities\": []\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"raw": "{{baseUrl}}/api/v1/pricing",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"transfers",
-								"search"
+								"pricing"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "S-003 Coordinates Search",
+					"name": "PR-002 Calculate Price with Amenities",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -205,40 +818,112 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"latitude\": 40.7580,\n    \"longitude\": -73.9855\n  },\n  \"dropoffLocation\": {\n    \"latitude\": 40.6413,\n    \"longitude\": -73.7781\n  },\n  \"pickupDateTime\": \"2026-09-01T14:00:00\",\n  \"numPassengers\": 1,\n  \"numBags\": 1,\n  \"currency\": \"EUR\"\n}"
+							"raw": "{\n  \"searchId\": \"{{searchId}}\",\n  \"offerId\": \"{{offerId}}\",\n  \"amenities\": [\"wifi\", \"baby_seat\"]\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"raw": "{{baseUrl}}/api/v1/pricing",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"transfers",
-								"search"
+								"pricing"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "S-005 Round Trip Search",
+					"name": "PR-003 Get Price (GET)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/pricing?searchId={{searchId}}&offerId={{offerId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"pricing"
+							],
+							"query": [
+								{
+									"key": "searchId",
+									"value": "{{searchId}}"
+								},
+								{
+									"key": "offerId",
+									"value": "{{offerId}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "PR-004 Get Available Amenities",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Returns array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/pricing/{{offerId}}/amenities",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"pricing",
+								"{{offerId}}",
+								"amenities"
+							]
+						}
+					}
+				},
+				{
+					"name": "PR-101 Missing SearchId (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -252,40 +937,32 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"iataCode\": \"LAX\"\n  },\n  \"dropoffLocation\": {\n    \"address\": \"Beverly Hills, CA 90210\"\n  },\n  \"pickupDateTime\": \"2026-10-15T09:00:00\",\n  \"numPassengers\": 4,\n  \"numBags\": 6,\n  \"currency\": \"USD\",\n  \"mode\": \"ROUND_TRIP\"\n}"
+							"raw": "{\n  \"offerId\": \"{{offerId}}\",\n  \"amenities\": []\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"raw": "{{baseUrl}}/api/v1/pricing",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"transfers",
-								"search"
+								"pricing"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "S-006 Large Group (8 passengers)",
+					"name": "PR-102 Invalid OfferId (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error is INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -299,310 +976,47 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"iataCode\": \"ORD\"\n  },\n  \"dropoffLocation\": {\n    \"address\": \"Downtown Chicago, IL\"\n  },\n  \"pickupDateTime\": \"2026-11-20T18:00:00\",\n  \"numPassengers\": 8,\n  \"numBags\": 10,\n  \"currency\": \"USD\"\n}"
+							"raw": "{\n  \"searchId\": \"{{searchId}}\",\n  \"offerId\": \"invalid-offer-token\",\n  \"amenities\": []\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"raw": "{{baseUrl}}/api/v1/pricing",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"transfers",
-								"search"
+								"pricing"
 							]
 						}
-					},
-					"response": []
-				},
-				{
-					"name": "S-007 Without pickupDateTime (Optional)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 200 (pickupDateTime optional)', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"Manhattan, NY\"\n  },\n  \"dropoffLocation\": {\n    \"iataCode\": \"LGA\"\n  },\n  \"numPassengers\": 2\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"search"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "S-101 Missing Pickup Location (400)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});",
-									"",
-									"pm.test('Error code is VALIDATION_ERROR', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
-									"});",
-									"",
-									"pm.test('Has searchId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.searchId).to.be.a('string');",
-									"    pm.collectionVariables.set('searchId', json.searchId);",
-									"});",
-									""
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"dropoffLocation\": {\n    \"iataCode\": \"JFK\"\n  },\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"search"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "S-102 Missing Dropoff Location (400)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"123 Main St\"\n  },\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"search"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "S-104 Zero Passengers (400)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"123 Main St\"\n  },\n  \"dropoffLocation\": {\n    \"iataCode\": \"JFK\"\n  },\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 0\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"search"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "S-106 Address Too Long (400)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"\n  },\n  \"dropoffLocation\": {\n    \"iataCode\": \"JFK\"\n  },\n  \"pickupDateTime\": \"2026-08-16T15:30:00\",\n  \"numPassengers\": 2\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/search",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"search"
-							]
-						}
-					},
-					"response": []
+					}
 				}
 			]
 		},
 		{
-			"name": "2. Book API",
+			"name": "04 - Book",
 			"item": [
 				{
 					"name": "B-001 Valid Booking",
 					"event": [
 						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 200', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Status is CONFIRMED or PENDING', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(['CONFIRMED', 'PENDING']).to.include(json.status);",
-									"});",
-									"",
-									"pm.test('Has bookingId', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.bookingId).to.be.a('string');",
-									"});",
-									"",
-									"// Save bookingId for cancel tests",
-									"var json = pm.response.json();",
-									"if (json.bookingId) {",
-									"    pm.collectionVariables.set('bookingId', json.bookingId);",
-									"    console.log('Saved bookingId: ' + json.bookingId);",
-									"}"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						},
-						{
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"// Generate unique idempotency key",
 									"pm.collectionVariables.set('idempotencyKey', 'book-' + Date.now());"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has bookingId', () => { var json = pm.response.json(); pm.expect(json.bookingId).to.be.a('string'); pm.collectionVariables.set('bookingId', json.bookingId); });",
+									"pm.test('Status is CONFIRMED or PENDING', () => pm.expect(['CONFIRMED', 'PENDING']).to.include(pm.response.json().status));"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -614,12 +1028,12 @@
 								"value": "application/json"
 							},
 							{
-								"key": "X-Request-Id",
-								"value": "{{$guid}}"
-							},
-							{
 								"key": "Idempotency-Key",
 								"value": "{{idempotencyKey}}"
+							},
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
 							}
 						],
 						"body": {
@@ -638,28 +1052,19 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-005 Idempotent Booking (Same Key)",
+					"name": "B-002 Idempotent Booking (Same Key)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200 (cached response)', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Same bookingId returned', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.bookingId).to.eql(pm.collectionVariables.get('bookingId'));",
-									"});"
+									"pm.test('Status is 200 (cached)', () => pm.response.to.have.status(200));",
+									"pm.test('Same bookingId', () => pm.expect(pm.response.json().bookingId).to.eql(pm.collectionVariables.get('bookingId')));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -691,11 +1096,10 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-003 Booking with Extra Passengers",
+					"name": "B-003 With Extra Passengers",
 					"event": [
 						{
 							"listen": "prerequest",
@@ -703,9 +1107,16 @@
 								"exec": [
 									"pm.collectionVariables.set('idempotencyKey2', 'book-extra-' + Date.now());"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -723,7 +1134,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"offerId\": \"{{offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"Alice\",\n    \"lastName\": \"Smith\",\n    \"email\": \"alice@example.com\",\n    \"phoneNumber\": \"+18005559999\",\n    \"countryCode\": \"US\"\n  },\n  \"extraPassengers\": [\n    {\"firstName\": \"Bob\", \"lastName\": \"Smith\"},\n    {\"firstName\": \"Charlie\", \"lastName\": \"Smith\"}\n  ],\n  \"flight\": {\n    \"airline\": \"UA\",\n    \"flightNumber\": \"456\"\n  }\n}"
+							"raw": "{\n  \"offerId\": \"{{offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"Alice\",\n    \"lastName\": \"Smith\",\n    \"email\": \"alice@example.com\",\n    \"phoneNumber\": \"+18005559999\",\n    \"countryCode\": \"US\"\n  },\n  \"extraPassengers\": [\n    {\"firstName\": \"Bob\", \"lastName\": \"Smith\"},\n    {\"firstName\": \"Charlie\", \"lastName\": \"Smith\"}\n  ],\n  \"flight\": {\"airline\": \"UA\", \"flightNumber\": \"456\"}\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/transfers/book",
@@ -737,28 +1148,19 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-101 Invalid OfferId Format (400)",
+					"name": "B-101 Invalid OfferId (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});",
-									"",
-									"pm.test('Error code is INVALID_TOKEN', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.code).to.eql('INVALID_TOKEN');",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error is INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -786,72 +1188,18 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-102 Tampered Signature (400)",
+					"name": "B-102 Missing OfferId (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});",
-									"",
-									"pm.test('Error code is INVALID_TOKEN', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.code).to.eql('INVALID_TOKEN');",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"offerId\": \"eyJzdXAiOiJNT1pJTyIsInNpZCI6ImFiYyIsInJpZCI6Inh5eiIsImV4cCI6OTk5OTk5OTk5OSwiaWF0IjoxNzM2NTE5MDAwfQ.TAMPERED_SIG\",\n  \"passenger\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john@example.com\",\n    \"phoneNumber\": \"+18005551234\",\n    \"countryCode\": \"US\"\n  }\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/v1/transfers/book",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"transfers",
-								"book"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "B-201 Missing OfferId (400)",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -879,23 +1227,19 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-202 Missing Passenger FirstName (400)",
+					"name": "B-103 Missing FirstName (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Validation error', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -923,23 +1267,18 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "B-205 Invalid Email (400)",
+					"name": "B-104 Invalid Email (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -967,13 +1306,91 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
+				},
+				{
+					"name": "B-105 Missing PhoneNumber (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"offerId\": \"{{offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john@example.com\",\n    \"countryCode\": \"US\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/book",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"book"
+							]
+						}
+					}
+				},
+				{
+					"name": "B-106 Tampered Signature (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error is INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"offerId\": \"eyJzdXAiOiJNT1pJTyIsInNpZCI6ImFiYyIsInJpZCI6Inh5eiIsImV4cCI6OTk5OTk5OTk5OSwiaWF0IjoxNzM2NTE5MDAwfQ.TAMPERED_SIG\",\n  \"passenger\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john@example.com\",\n    \"phoneNumber\": \"+18005551234\",\n    \"countryCode\": \"US\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/book",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"book"
+							]
+						}
+					}
 				}
 			]
 		},
 		{
-			"name": "3. Cancel API",
+			"name": "05 - Cancel",
 			"item": [
 				{
 					"name": "C-001 Valid Cancel",
@@ -982,18 +1399,10 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Status is CANCELLED', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.status).to.eql('CANCELLED');",
-									"});"
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Status is CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1018,28 +1427,19 @@
 								"{{bookingId}}"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "C-004 Idempotent Cancel (Already Cancelled)",
+					"name": "C-002 Idempotent Cancel",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200 (idempotent)', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Status is CANCELLED', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.status).to.eql('CANCELLED');",
-									"});"
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Status is CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1059,28 +1459,57 @@
 								"{{bookingId}}"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "C-101 Invalid BookingId Format (400)",
+					"name": "C-003 Get Cancel Status",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});",
-									"",
-									"pm.test('Error code is INVALID_TOKEN', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.code).to.eql('INVALID_TOKEN');",
-									"});"
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has status field', () => pm.expect(pm.response.json()).to.have.property('status'));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/{{bookingId}}/cancel-status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"{{bookingId}}",
+								"cancel-status"
+							]
+						}
+					}
+				},
+				{
+					"name": "C-101 Invalid BookingId (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error is INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1100,23 +1529,18 @@
 								"not-a-valid-booking-id"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "C-102 Tampered BookingId Signature (400)",
+					"name": "C-102 Tampered Signature (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 400', function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1136,29 +1560,222 @@
 								"eyJzdXAiOiJNT1pJTyIsInJpZCI6InJlczEyMyIsImNuZiI6Ik1aMTIzNDU2In0.TAMPERED"
 							]
 						}
-					},
-					"response": []
+					}
 				}
 			]
 		},
 		{
-			"name": "4. Health & Info",
+			"name": "06 - Booking Change",
 			"item": [
 				{
-					"name": "Health Check",
+					"name": "BC-001 Search Changes",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Note: Run a search + book first to have a valid bookingId"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200 or 400', () => { pm.expect([200, 400]).to.include(pm.response.code); });",
+									"if (pm.response.code === 200) { var json = pm.response.json(); if (json.offers && json.offers.length > 0) { pm.collectionVariables.set('changeResultId', json.offers[0].offerId); } }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"Times Square, NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"LGA\"},\n  \"pickupDateTime\": \"2026-09-01T10:00:00\",\n  \"numPassengers\": 2,\n  \"numBags\": 2,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/{{bookingId}}/search-changes",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"{{bookingId}}",
+								"search-changes"
+							]
+						}
+					}
+				},
+				{
+					"name": "BC-002 Commit Change",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"if (!pm.collectionVariables.get('changeResultId')) { pm.collectionVariables.set('changeResultId', 'dummy-result'); }"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200, 400 or 404', () => pm.expect([200, 400, 404]).to.include(pm.response.code));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Request-Id",
+								"value": "{{$guid}}"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "change-{{$guid}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"resultId\": \"{{changeResultId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/{{bookingId}}/commit-change",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"{{bookingId}}",
+								"commit-change"
+							]
+						}
+					}
+				},
+				{
+					"name": "BC-101 Invalid BookingId (400)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status is 200', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Status is UP', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.status).to.eql('UP');",
-									"});"
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));",
+									"pm.test('Error is INVALID_TOKEN', () => pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"numPassengers\": 1\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/invalid-booking-token/search-changes",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"invalid-booking-token",
+								"search-changes"
+							]
+						}
+					}
+				},
+				{
+					"name": "BC-102 Missing ResultId (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/{{bookingId}}/commit-change",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"{{bookingId}}",
+								"commit-change"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "07 - Alerts",
+			"item": [
+				{
+					"name": "A-001 Get DLQ Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));"
 								],
 								"type": "text/javascript"
 							}
@@ -1168,62 +1785,175 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/actuator/health",
+							"raw": "{{baseUrl}}/api/v1/admin/alerts/dlq",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"actuator",
-								"health"
+								"api",
+								"v1",
+								"admin",
+								"alerts",
+								"dlq"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "Prometheus Metrics",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/actuator/prometheus",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"actuator",
-								"prometheus"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "5. E2E Flow",
-			"item": [
-				{
-					"name": "E2E Step 1: Search",
+					"name": "A-002 Get Error Metrics",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Search successful', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has metrics', () => { var json = pm.response.json(); pm.expect(json).to.have.property('searchErrors'); pm.expect(json).to.have.property('bookingErrors'); });"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/alerts/errors",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"alerts",
+								"errors"
+							]
+						}
+					}
+				},
+				{
+					"name": "A-003 Simulate DLQ Items",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has added count', () => pm.expect(pm.response.json()).to.have.property('added'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/alerts/dlq/simulate?count=3",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"alerts",
+								"dlq",
+								"simulate"
+							],
+							"query": [
+								{
+									"key": "count",
+									"value": "3"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "A-004 Clear DLQ",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Has cleared count', () => pm.expect(pm.response.json()).to.have.property('cleared'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/alerts/dlq",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"alerts",
+								"dlq"
+							]
+						}
+					}
+				},
+				{
+					"name": "A-005 Trigger Alert Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status is 200', () => pm.response.to.have.status(200));",
+									"pm.test('Check completed', () => pm.expect(pm.response.json().status).to.eql('check completed'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/alerts/check",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"alerts",
+								"check"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "99 - E2E",
+			"item": [
+				{
+					"name": "E2E-001 Step 1: Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Search successful', () => pm.response.to.have.status(200));",
 									"var json = pm.response.json();",
 									"if (json.offers && json.offers.length > 0) {",
-									"    pm.collectionVariables.set('e2e_offerId', json.offers[0].offerId);",
-									"    pm.collectionVariables.set('e2e_searchId', json.searchId);",
-									"    console.log('E2E offerId: ' + json.offers[0].offerId);",
+									"  pm.collectionVariables.set('e2e_offerId', json.offers[0].offerId);",
+									"  pm.collectionVariables.set('e2e_searchId', json.searchId);",
 									"}"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1241,7 +1971,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"pickupLocation\": {\n    \"address\": \"Empire State Building, NYC\"\n  },\n  \"dropoffLocation\": {\n    \"iataCode\": \"JFK\"\n  },\n  \"pickupDateTime\": \"2026-12-25T10:00:00\",\n  \"numPassengers\": 2\n}"
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"Empire State Building, NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"JFK\"},\n  \"pickupDateTime\": \"2026-12-25T10:00:00\",\n  \"numPassengers\": 2\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/transfers/search",
@@ -1255,38 +1985,28 @@
 								"search"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "E2E Step 2: Book",
+					"name": "E2E-001 Step 2: Book",
 					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('Booking successful', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"var json = pm.response.json();",
-									"pm.collectionVariables.set('e2e_bookingId', json.bookingId);",
-									"console.log('E2E bookingId: ' + json.bookingId);"
-								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
-							}
-						},
 						{
 							"listen": "prerequest",
 							"script": {
 								"exec": [
 									"pm.collectionVariables.set('e2e_idempotencyKey', 'e2e-book-' + Date.now());"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Booking successful', () => pm.response.to.have.status(200));",
+									"pm.collectionVariables.set('e2e_bookingId', pm.response.json().bookingId);"
+								],
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1308,7 +2028,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"offerId\": \"{{e2e_offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"E2E\",\n    \"lastName\": \"Test\",\n    \"email\": \"e2e.test@example.com\",\n    \"phoneNumber\": \"+18001234567\",\n    \"countryCode\": \"US\"\n  },\n  \"flight\": {\n    \"airline\": \"DL\",\n    \"flightNumber\": \"999\"\n  }\n}"
+							"raw": "{\n  \"offerId\": \"{{e2e_offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"E2E\",\n    \"lastName\": \"Test\",\n    \"email\": \"e2e.test@example.com\",\n    \"phoneNumber\": \"+18001234567\",\n    \"countryCode\": \"US\"\n  },\n  \"flight\": {\"airline\": \"DL\", \"flightNumber\": \"999\"}\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/transfers/book",
@@ -1322,30 +2042,20 @@
 								"book"
 							]
 						}
-					},
-					"response": []
+					}
 				},
 				{
-					"name": "E2E Step 3: Cancel",
+					"name": "E2E-001 Step 3: Cancel",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Cancel successful', function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test('Status is CANCELLED', function () {",
-									"    var json = pm.response.json();",
-									"    pm.expect(json.status).to.eql('CANCELLED');",
-									"});",
-									"",
-									"console.log('E2E Flow Complete!');"
+									"pm.test('Cancel successful', () => pm.response.to.have.status(200));",
+									"pm.test('Status is CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));",
+									"console.log('E2E-001 Complete!');"
 								],
-								"type": "text/javascript",
-								"packages": {},
-								"requests": {}
+								"type": "text/javascript"
 							}
 						}
 					],
@@ -1370,8 +2080,215 @@
 								"{{e2e_bookingId}}"
 							]
 						}
-					},
-					"response": []
+					}
+				},
+				{
+					"name": "E2E-002 Step 1: Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Search OK', () => pm.response.to.have.status(200));",
+									"var json = pm.response.json();",
+									"pm.collectionVariables.set('e2e2_searchId', json.searchId);",
+									"if (json.offers && json.offers.length > 0) { pm.collectionVariables.set('e2e2_offerId', json.offers[0].offerId); }"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pickupLocation\": {\"address\": \"Grand Central, NYC\"},\n  \"dropoffLocation\": {\"iataCode\": \"LGA\"},\n  \"pickupDateTime\": \"2026-11-15T08:00:00\",\n  \"numPassengers\": 3\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search"
+							]
+						}
+					}
+				},
+				{
+					"name": "E2E-002 Step 2: Poll",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Poll OK', () => pm.response.to.have.status(200));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/search/{{e2e2_searchId}}/poll?sortBy=PRICE&sortDir=ASC",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"search",
+								"{{e2e2_searchId}}",
+								"poll"
+							],
+							"query": [
+								{
+									"key": "sortBy",
+									"value": "PRICE"
+								},
+								{
+									"key": "sortDir",
+									"value": "ASC"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "E2E-002 Step 3: Pricing",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Pricing OK', () => pm.response.to.have.status(200));",
+									"pm.test('Has totalPrice', () => pm.expect(pm.response.json()).to.have.property('totalPrice'));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"searchId\": \"{{e2e2_searchId}}\",\n  \"offerId\": \"{{e2e2_offerId}}\",\n  \"amenities\": []\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/pricing",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"pricing"
+							]
+						}
+					}
+				},
+				{
+					"name": "E2E-002 Step 4: Book",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.collectionVariables.set('e2e2_idempotencyKey', 'e2e2-' + Date.now());"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Book OK', () => pm.response.to.have.status(200));",
+									"pm.collectionVariables.set('e2e2_bookingId', pm.response.json().bookingId);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{e2e2_idempotencyKey}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"offerId\": \"{{e2e2_offerId}}\",\n  \"passenger\": {\n    \"firstName\": \"E2E2\",\n    \"lastName\": \"Test\",\n    \"email\": \"e2e2@example.com\",\n    \"phoneNumber\": \"+18009999999\",\n    \"countryCode\": \"US\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/book",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"book"
+							]
+						}
+					}
+				},
+				{
+					"name": "E2E-002 Step 5: Cancel",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Cancel OK', () => pm.response.to.have.status(200));",
+									"console.log('E2E-002 Complete!');"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/transfers/bookings/{{e2e2_bookingId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"transfers",
+								"bookings",
+								"{{e2e2_bookingId}}"
+							]
+						}
+					}
 				}
 			]
 		}
@@ -1381,10 +2298,11 @@
 			"listen": "prerequest",
 			"script": {
 				"type": "text/javascript",
-				"packages": {},
-				"requests": {},
 				"exec": [
-					""
+					"// Auto-generate X-Request-Id if not set",
+					"if (!pm.request.headers.has('X-Request-Id')) {",
+					"  pm.request.headers.add({ key: 'X-Request-Id', value: pm.variables.replaceIn('{{$guid}}') });",
+					"}"
 				]
 			}
 		},
@@ -1392,8 +2310,6 @@
 			"listen": "test",
 			"script": {
 				"type": "text/javascript",
-				"packages": {},
-				"requests": {},
 				"exec": [
 					""
 				]
@@ -1406,6 +2322,10 @@
 			"value": "http://localhost:8080"
 		},
 		{
+			"key": "searchId",
+			"value": ""
+		},
+		{
 			"key": "offerId",
 			"value": ""
 		},
@@ -1414,7 +2334,15 @@
 			"value": ""
 		},
 		{
-			"key": "searchId",
+			"key": "idempotencyKey",
+			"value": ""
+		},
+		{
+			"key": "idempotencyKey2",
+			"value": ""
+		},
+		{
+			"key": "changeResultId",
 			"value": ""
 		},
 		{
@@ -1434,7 +2362,19 @@
 			"value": ""
 		},
 		{
-			"key": "idempotencyKey",
+			"key": "e2e2_searchId",
+			"value": ""
+		},
+		{
+			"key": "e2e2_offerId",
+			"value": ""
+		},
+		{
+			"key": "e2e2_idempotencyKey",
+			"value": ""
+		},
+		{
+			"key": "e2e2_bookingId",
 			"value": ""
 		}
 	]
