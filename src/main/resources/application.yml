@@ -22,6 +22,27 @@ spring:
       fail-on-unknown-properties: false
     serialization:
       write-dates-as-timestamps: false
+  
+  # Redis configuration for distributed caching
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+  
+  # Mail configuration for alerting
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
 
 # ============================================
 # Transfer Aggregator Configuration
@@ -63,12 +84,106 @@ transfer:
       search-rate-limit-per-minute: 80
       # Rate limit per minute for poll requests per searchId
       poll-rate-limit-per-minute: 25
+    
+    # Multi-tenant configuration
+    default-tenant: default
+    tenants:
+      default:
+        name: "Default Tenant"
+        enabled: true
+        # Empty enabled-suppliers = all suppliers allowed
+        
+      tenant-a:
+        name: "Travel Partner A"
+        enabled: true
+        enabled-suppliers:
+          - STUB
+          - MOZIO
+        default-currency: USD
+        max-results-per-supplier: 10
+        
+      tenant-b:
+        name: "Travel Partner B"
+        enabled: true
+        enabled-suppliers:
+          - SKYRIDE
+          - SLOW_STUB
+        default-currency: EUR
+        
+      tenant-premium:
+        name: "Premium Partner"
+        enabled: true
+        enabled-suppliers:
+          - STUB
+          - SKYRIDE
+          - MOZIO
+          - SLOW_STUB
+        default-currency: USD
+        max-results-per-supplier: 50
+    
+    # Alerting configuration
+    alerting:
+      enabled: ${ALERTING_ENABLED:false}
+      check-interval-seconds: 60
+      
+      # DLQ thresholds
+      dlq-warning-threshold: 10
+      dlq-critical-threshold: 50
+      
+      # Error rate thresholds (per minute)
+      error-rate-warning-threshold: 5
+      error-rate-critical-threshold: 20
+      
+      # Email configuration
+      email:
+        enabled: ${ALERTING_EMAIL_ENABLED:false}
+        from: ${ALERTING_EMAIL_FROM:alerts@arcube.com}
+        subject-prefix: "[Arcube Transfer Aggregator]"
+        recipients:
+          - ${ALERTING_EMAIL_TO:operations@arcube.com}
 
 # Token signing for offerId/bookingId
 security:
   token:
     # HMAC-SHA256 secret key
     secret: ${TOKEN_SECRET:57fd0a434be5ba1dc468f69ee204c70328ceb8cac56d6f3e70cd39c49ce5f7d4}
+
+# ============================================
+# Resilience4j Circuit Breaker Configuration
+# ============================================
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientException
+    instances:
+      STUB:
+        baseConfig: default
+      SKYRIDE:
+        baseConfig: default
+      SLOW_STUB:
+        baseConfig: default
+        waitDurationInOpenState: 60s
+      MOZIO:
+        baseConfig: default
+        slidingWindowSize: 20
+        failureRateThreshold: 40
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
 
 # ============================================
 # Observability Configuration

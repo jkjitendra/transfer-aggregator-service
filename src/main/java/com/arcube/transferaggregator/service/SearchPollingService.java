@@ -3,55 +3,92 @@ package com.arcube.transferaggregator.service;
 import com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClient;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Offer;
+import com.arcube.transferaggregator.dto.PageRequest;
+import com.arcube.transferaggregator.dto.SearchFilter;
 import com.arcube.transferaggregator.dto.SearchResponse;
 import com.arcube.transferaggregator.dto.SearchResponse.OfferDto;
 import com.arcube.transferaggregator.dto.SearchResponse.SupplierStatusDto;
+import com.arcube.transferaggregator.dto.SearchSort;
+import com.arcube.transferaggregator.dto.SearchStateDto;
 import com.arcube.transferaggregator.ports.SupplierSearchResult;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
-/** Handles polling for search results from slow suppliers */
 @Slf4j
 @Service
 public class SearchPollingService {
     
+    private static final String CACHE_PREFIX = "search:";
+    private static final Duration CACHE_TTL = Duration.ofMinutes(10);
+    
     private final SlowMockSupplierClient slowMockClient;
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
+    private final OfferFilterService filterService;
     
-    // Cache: aggregator searchId -> SearchState
-    private final Cache<String, SearchState> searchCache = Caffeine.newBuilder()
-        .expireAfterWrite(10, TimeUnit.MINUTES)
-        .maximumSize(5000)
-        .build();
-    
-    public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient) {
+    public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
+                                 StringRedisTemplate redisTemplate,
+                                 ObjectMapper objectMapper,
+                                 OfferFilterService filterService) {
         this.slowMockClient = slowMockClient.orElse(null);
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
+        this.filterService = filterService;
     }
     
-    /** Cache initial search state for polling */
     public void cacheSearchState(String searchId, SearchResponse response, 
                                   Map<String, String> supplierSearchIds) {
-        SearchState state = new SearchState(
-            searchId, 
-            new ArrayList<>(response.getOffers()),
-            new HashMap<>(response.getSupplierStatuses()),
-            new HashMap<>(supplierSearchIds),
-            response.isIncomplete()
-        );
-        searchCache.put(searchId, state);
-        log.debug("Cached search: id={}, incomplete={}, suppliers={}", 
-            searchId, response.isIncomplete(), supplierSearchIds.keySet());
+        SearchStateDto state = SearchStateDto.builder()
+            .searchId(searchId)
+            .offers(new ArrayList<>(response.getOffers()))
+            .statuses(new HashMap<>(response.getSupplierStatuses()))
+            .supplierSearchIds(new HashMap<>(supplierSearchIds))
+            .incomplete(response.isIncomplete())
+            .build();
+        
+        try {
+            String cacheKey = CACHE_PREFIX + searchId;
+            String json = objectMapper.writeValueAsString(state);
+            redisTemplate.opsForValue().set(cacheKey, json, CACHE_TTL);
+            log.debug("Cached search in Redis: id={}, incomplete={}, suppliers={}", 
+                searchId, response.isIncomplete(), supplierSearchIds.keySet());
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize search state for caching: {}", e.getMessage());
+        }
     }
     
-    /** Poll for updated results */
-    public SearchResponse poll(String searchId) {
-        SearchState state = searchCache.getIfPresent(searchId);
-        if (state == null) {
+    /**
+     * Poll with filtering, sorting, and pagination.
+     */
+    public SearchResponse poll(String searchId, SearchFilter filter, 
+                                SearchSort sort, PageRequest page) {
+        String cacheKey = CACHE_PREFIX + searchId;
+        String json = redisTemplate.opsForValue().get(cacheKey);
+        
+        if (json == null) {
             log.warn("Poll for unknown searchId: {}", searchId);
+            return SearchResponse.builder()
+                .searchId(searchId)
+                .offers(List.of())
+                .incomplete(false)
+                .supplierStatuses(Map.of())
+                .totalCount(0)
+                .page(0)
+                .totalPages(0)
+                .build();
+        }
+        
+        SearchStateDto state;
+        try {
+            state = objectMapper.readValue(json, SearchStateDto.class);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to deserialize search state: {}", e.getMessage());
             return SearchResponse.builder()
                 .searchId(searchId)
                 .offers(List.of())
@@ -60,46 +97,61 @@ public class SearchPollingService {
                 .build();
         }
         
-        // Synchronize on state to prevent race condition on concurrent polls
-        synchronized (state) {
-            if (!state.incomplete) {
-                return buildResponse(searchId, state);
+        // Poll slow supplier if still incomplete
+        boolean stillIncomplete = false;
+        if (state.isIncomplete() && slowMockClient != null) {
+            String slowSearchId = state.getSupplierSearchIds().get("SLOW_STUB");
+            if (slowSearchId != null && slowMockClient.hasSearch(slowSearchId)) {
+                SupplierSearchResult result = slowMockClient.poll(slowSearchId);
+                
+                state.getOffers().removeIf(o -> "SLOW_STUB".equals(o.getSupplierCode()));
+                state.getOffers().addAll(result.offers().stream().map(this::mapToDto).toList());
+                
+                state.getStatuses().put("SLOW_STUB", SupplierStatusDto.builder()
+                    .status(result.complete() ? "SUCCESS" : "POLLING")
+                    .resultsCount(result.offers().size())
+                    .build());
+                
+                stillIncomplete = !result.complete();
             }
-            
-            // Poll slow supplier
-            boolean stillIncomplete = false;
-            if (slowMockClient != null) {
-                String slowSearchId = state.supplierSearchIds.get("SLOW_STUB");
-                if (slowSearchId != null && slowMockClient.hasSearch(slowSearchId)) {
-                    SupplierSearchResult result = slowMockClient.poll(slowSearchId);
-                    
-                    // Update offers from SLOW_STUB
-                    state.offers.removeIf(o -> "SLOW_STUB".equals(o.getSupplierCode()));
-                    state.offers.addAll(result.offers().stream().map(this::mapToDto).toList());
-                    
-                    state.statuses.put("SLOW_STUB", SupplierStatusDto.builder()
-                        .status(result.complete() ? "SUCCESS" : "POLLING")
-                        .resultsCount(result.offers().size())
-                        .build());
-                    
-                    stillIncomplete = !result.complete();
-                }
-            }
-            
-            state.incomplete = stillIncomplete;
-            log.info("Poll {}: {} offers, incomplete={}", searchId, state.offers.size(), stillIncomplete);
-            
-            return buildResponse(searchId, state);
         }
-    }
-    
-    private SearchResponse buildResponse(String searchId, SearchState state) {
+        
+        state.setIncomplete(stillIncomplete);
+        
+        // Update cache
+        try {
+            String updatedJson = objectMapper.writeValueAsString(state);
+            redisTemplate.opsForValue().set(cacheKey, updatedJson, CACHE_TTL);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to update cache: {}", e.getMessage());
+        }
+        
+        // Apply filtering, sorting, pagination
+        OfferFilterService.FilterResult filterResult = 
+            filterService.filterAndSort(state.getOffers(), filter, sort, page);
+        
+        log.info("Poll {}: {} total offers, {} after filter, page {}/{}", 
+            searchId, state.getOffers().size(), filterResult.getOffers().size(), 
+            page.getPage() + 1, filterResult.getTotalPages());
+        
         return SearchResponse.builder()
             .searchId(searchId)
-            .offers(new ArrayList<>(state.offers))
-            .incomplete(state.incomplete)
-            .supplierStatuses(new HashMap<>(state.statuses))
+            .offers(filterResult.getOffers())
+            .incomplete(stillIncomplete)
+            .supplierStatuses(new HashMap<>(state.getStatuses()))
+            .totalCount(filterResult.getTotalCount())
+            .page(filterResult.getPage())
+            .totalPages(filterResult.getTotalPages())
+            .hasNext(filterResult.isHasNext())
+            .hasPrevious(filterResult.isHasPrevious())
             .build();
+    }
+    
+    /**
+     * Backward compatible poll without filters.
+     */
+    public SearchResponse poll(String searchId) {
+        return poll(searchId, null, SearchSort.byPrice(), PageRequest.first());
     }
     
     private OfferDto mapToDto(Offer o) {
@@ -107,29 +159,12 @@ public class SearchPollingService {
             .offerId(o.offerId()).supplierCode(o.supplierCode())
             .vehicle(o.vehicle()).provider(o.provider()).totalPrice(o.totalPrice())
             .cancellation(o.cancellation()).estimatedDurationMinutes(o.estimatedDurationMinutes())
+            .distanceMeters(o.distanceMeters())
             .flightInfoRequired(o.flightInfoRequired()).extraPassengerInfoRequired(o.extraPassengerInfoRequired())
             .expiresAt(o.expiresAt())
             .includedAmenities(o.includedAmenities() != null ? 
                 o.includedAmenities().stream().map(Amenity::key).toList() : List.of())
             .extras(o.extras())
             .build();
-    }
-    
-    private static class SearchState {
-        final String searchId;
-        final List<OfferDto> offers;
-        final Map<String, SupplierStatusDto> statuses;
-        final Map<String, String> supplierSearchIds;
-        boolean incomplete;
-        
-        SearchState(String searchId, List<OfferDto> offers, 
-                   Map<String, SupplierStatusDto> statuses,
-                   Map<String, String> supplierSearchIds, boolean incomplete) {
-            this.searchId = searchId;
-            this.offers = offers;
-            this.statuses = statuses;
-            this.supplierSearchIds = supplierSearchIds;
-            this.incomplete = incomplete;
-        }
     }
 }

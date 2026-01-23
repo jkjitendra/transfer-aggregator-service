@@ -1,6 +1,8 @@
 package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.config.AggregatorProperties;
+import com.arcube.transferaggregator.config.TenantConfig;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.domain.*;
 import com.arcube.transferaggregator.dto.SearchRequest;
 import com.arcube.transferaggregator.dto.SearchResponse;
@@ -11,6 +13,7 @@ import com.arcube.transferaggregator.ports.SupplierSearchResult;
 import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.resilience.RateLimiter;
 import com.arcube.transferaggregator.resilience.SupplierBulkhead;
+import com.arcube.transferaggregator.resilience.SupplierCircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,10 +24,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Orchestrates search across all enabled suppliers.
- * Includes resilience patterns: bulkhead, rate limiting.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,15 +34,24 @@ public class TransferSearchService {
     private final SupplierBulkhead bulkhead;
     private final RateLimiter rateLimiter;
     private final SearchPollingService pollingService;
+    private final SupplierCircuitBreaker circuitBreaker;
+    private final TenantConfig tenantConfig;
     
     public SearchResponse search(SearchRequest request) {
         var searchId = UUID.randomUUID().toString();
         var deadline = Instant.now().plusSeconds(properties.getGlobalTimeoutSeconds());
         var command = mapToCommand(request);
         
-        List<TransferSupplier> suppliers = supplierRegistry.getEnabledSuppliers();
-        log.info("Search {}: {} suppliers enabled, bulkhead permits={}", 
-            searchId, suppliers.size(), bulkhead.availablePermits());
+        // Get current tenant from context
+        String tenantId = TenantContext.getTenantIdOrDefault(tenantConfig.getDefaultTenant());
+        
+        // Filter suppliers by tenant configuration
+        List<TransferSupplier> suppliers = supplierRegistry.getEnabledSuppliers().stream()
+            .filter(s -> tenantConfig.isSupplierEnabled(tenantId, s.getSupplierCode()))
+            .toList();
+        
+        log.info("Search {}: tenant={}, {} suppliers enabled, bulkhead permits={}", 
+            searchId, tenantId, suppliers.size(), bulkhead.availablePermits());
         
         if (suppliers.isEmpty()) {
             return SearchResponse.builder()
@@ -51,21 +59,30 @@ public class TransferSearchService {
                 .build();
         }
         
-        // Fan out to suppliers in parallel with bulkhead protection
+        // Fan out to suppliers in parallel with bulkhead and circuit breaker protection
         Map<String, CompletableFuture<SupplierSearchResult>> futures = new HashMap<>();
         for (TransferSupplier supplier : suppliers) {
             String code = supplier.getSupplierCode();
+            
+            // Skip if circuit breaker is open
+            if (circuitBreaker.isOpen(code)) {
+                log.warn("Skipping supplier {} - circuit breaker OPEN", code);
+                continue;
+            }
             
             Duration timeout = Duration.between(Instant.now(), deadline);
             if (timeout.isNegative()) timeout = Duration.ofMillis(100);
             Duration finalTimeout = timeout;
             
             futures.put(code, CompletableFuture.supplyAsync(() -> {
-                // Check rate limit for this supplier
                 rateLimiter.acquireSearchPermit(code);
                 
-                // Execute within bulkhead
-                return bulkhead.execute(() -> supplier.search(command, finalTimeout));
+                // Execute within bulkhead AND circuit breaker
+                return circuitBreaker.execute(
+                    code,
+                    () -> bulkhead.execute(() -> supplier.search(command, finalTimeout)),
+                    () -> createFallbackResult(code)  // Fallback on circuit open
+                );
             }));
         }
         
@@ -74,6 +91,18 @@ public class TransferSearchService {
         Map<String, SupplierStatusDto> statuses = new HashMap<>();
         Map<String, String> supplierSearchIds = new HashMap<>();
         boolean incomplete = false;
+        
+        // Mark skipped suppliers
+        for (TransferSupplier supplier : suppliers) {
+            String code = supplier.getSupplierCode();
+            if (!futures.containsKey(code)) {
+                statuses.put(code, SupplierStatusDto.builder()
+                    .status("CIRCUIT_OPEN")
+                    .errorMessage("Circuit breaker open - supplier temporarily unavailable")
+                    .build());
+                incomplete = true;
+            }
+        }
         
         for (var entry : futures.entrySet()) {
             String code = entry.getKey();
@@ -106,12 +135,16 @@ public class TransferSearchService {
             .supplierStatuses(statuses)
             .build();
         
-        // Cache state for polling if incomplete
         if (incomplete) {
             pollingService.cacheSearchState(searchId, response, supplierSearchIds);
         }
         
         return response;
+    }
+    
+    private SupplierSearchResult createFallbackResult(String supplierCode) {
+        log.warn("Using fallback result for supplier {}", supplierCode);
+        return SupplierSearchResult.success(supplierCode, "fallback-" + supplierCode, List.of(), true, 0);
     }
     
     private SearchCommand mapToCommand(SearchRequest req) {
@@ -137,6 +170,7 @@ public class TransferSearchService {
             .offerId(o.offerId()).supplierCode(o.supplierCode())
             .vehicle(o.vehicle()).provider(o.provider()).totalPrice(o.totalPrice())
             .cancellation(o.cancellation()).estimatedDurationMinutes(o.estimatedDurationMinutes())
+            .distanceMeters(o.distanceMeters())
             .flightInfoRequired(o.flightInfoRequired()).extraPassengerInfoRequired(o.extraPassengerInfoRequired())
             .expiresAt(o.expiresAt())
             .includedAmenities(o.includedAmenities() != null ? o.includedAmenities().stream().map(Amenity::key).toList() : List.of())
@@ -144,4 +178,3 @@ public class TransferSearchService {
             .build();
     }
 }
-

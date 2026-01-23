@@ -3,16 +3,16 @@ info:
   title: Airport Transfer Aggregator API
   description: |
     REST API for aggregating airport transfer services from multiple suppliers.
-    
+
     ## Features
     - Search across multiple suppliers in parallel
     - Unified booking interface
     - Signed, stateless tokens for offers and bookings
     - Idempotency support for booking operations
-    
+
     ## Authentication
     No authentication required for API calls. Supplier credentials are managed server-side.
-    
+
     ## Rate Limits
     - Search: 80 requests/minute
     - Booking: 50 requests/minute
@@ -27,7 +27,13 @@ servers:
 
 tags:
   - name: Transfers
-    description: Airport transfer search, booking, and cancellation
+    description: Airport transfer search, booking, cancellation, polling
+  - name: Pricing
+    description: Pricing operations and amenities pricing
+  - name: BookingChanges
+    description: Search and commit booking changes
+  - name: AdminAlerts
+    description: Admin endpoints for alerting and monitoring
 
 paths:
   /api/v1/transfers/search:
@@ -69,6 +75,181 @@ paths:
                 $ref: '#/components/schemas/SearchResponse'
         '400':
           description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transfers/search/{searchId}/poll:
+    get:
+      tags:
+        - Transfers
+      summary: Poll for search results (with filtering/sorting/pagination)
+      description: |
+        Poll search results for a given searchId.
+        Supports filtering/sorting/pagination via query params (Mozio-aligned).
+      operationId: pollSearch
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+
+        - name: searchId
+          in: path
+          required: true
+          schema:
+            type: string
+
+        # Pagination
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 200
+
+        # Sorting
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            default: PRICE
+            description: Sort field. If invalid, server falls back to PRICE.
+        - name: sortDir
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ASC
+            description: Sort direction. If invalid, server falls back to ASC.
+
+        # Price filters
+        - name: minPrice
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: maxPrice
+          in: query
+          required: false
+          schema:
+            type: number
+
+        # Vehicle filters
+        - name: vehicleTypes
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: vehicleClasses
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: vehicleCategories
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+
+        # Capacity filters
+        - name: minPassengers
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: minBags
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+
+        # Amenity filters + cancellation
+        - name: amenities
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          description: Required amenities (Mozio-aligned)
+        - name: freeCancellationOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+
+        # Provider filters
+        - name: minRating
+          in: query
+          required: false
+          schema:
+            type: number
+            minimum: 0
+            maximum: 5
+        - name: providers
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+
+        # Duration filter
+        - name: maxDuration
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+
+      responses:
+        '200':
+          description: Search results (possibly partial if suppliers still running)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid searchId or invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Search not found (if applicable in implementation)
           content:
             application/json:
               schema:
@@ -207,6 +388,409 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/transfers/bookings/{bookingId}/cancel-status:
+    get:
+      tags:
+        - Transfers
+      summary: Get cancellation status
+      description: Returns the latest cancel status for a booking.
+      operationId: getCancelStatus
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancel status returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+        '400':
+          description: Invalid booking ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/pricing:
+    post:
+      tags:
+        - Pricing
+      summary: Calculate total price for an offer with selected amenities
+      operationId: calculatePrice
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PricingRequest'
+      responses:
+        '200':
+          description: Pricing calculated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Offer/Search not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Offer expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Pricing
+      summary: Get price with amenities via query params
+      description: Mozio-aligned GET support.
+      operationId: getPriceWithAmenities
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: searchId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: offerId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: amenities
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Pricing calculated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PricingResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Offer/Search not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Offer expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/pricing/{offerId}/amenities:
+    get:
+      tags:
+        - Pricing
+      summary: Get list of available amenities for an offer
+      operationId: getAvailableAmenities
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Amenities returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AmenityInfo'
+        '400':
+          description: Invalid offerId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Offer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Offer expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transfers/bookings/{bookingId}/search-changes:
+    post:
+      tags:
+        - BookingChanges
+      summary: Search for alternative offers to change an existing booking
+      operationId: searchBookingChanges
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingChangeSearchRequest'
+      responses:
+        '200':
+          description: Change search results returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid bookingId or invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Change not allowed (policy/state restrictions)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transfers/bookings/{bookingId}/commit-change:
+    post:
+      tags:
+        - BookingChanges
+      summary: Commit a booking change (cancel old + book new)
+      operationId: commitBookingChange
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingChangeCommitRequest'
+      responses:
+        '200':
+          description: Booking change committed successfully (or pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingChangeResponse'
+        '400':
+          description: Invalid bookingId or invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Booking not found or resultId not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict (price changed, invalid state, duplicate change)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Offer expired / change window expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/alerts/dlq:
+    get:
+      tags:
+        - AdminAlerts
+      summary: Get current DLQ status
+      operationId: getDlqStatus
+      responses:
+        '200':
+          description: DLQ status returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertStatus'
+    delete:
+      tags:
+        - AdminAlerts
+      summary: Clear DLQ (simulate processing)
+      operationId: clearDlq
+      responses:
+        '200':
+          description: DLQ cleared successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DlqClearResponse'
+
+  /api/v1/admin/alerts/errors:
+    get:
+      tags:
+        - AdminAlerts
+      summary: Get error metrics summary
+      operationId: getErrorMetrics
+      responses:
+        '200':
+          description: Error metrics returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMetricsResponse'
+
+  /api/v1/admin/alerts/dlq/simulate:
+    post:
+      tags:
+        - AdminAlerts
+      summary: Simulate adding items to DLQ
+      operationId: simulateDlqItems
+      parameters:
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+      responses:
+        '200':
+          description: DLQ items simulated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DlqSimulateResponse'
+
+  /api/v1/admin/alerts/check:
+    post:
+      tags:
+        - AdminAlerts
+      summary: Manually trigger alerting check
+      operationId: triggerAlertCheck
+      responses:
+        '200':
+          description: Alerting check executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerCheckResponse'
+
 components:
   schemas:
     SearchRequest:
@@ -214,7 +798,6 @@ components:
       required:
         - pickupLocation
         - dropoffLocation
-        - pickupDateTime
       properties:
         pickupLocation:
           $ref: '#/components/schemas/LocationDto'
@@ -223,7 +806,7 @@ components:
         pickupDateTime:
           type: string
           format: date-time
-          description: Pickup date and time in ISO 8601 format
+          description: Optional. Pickup date and time in ISO 8601 format. If omitted, suppliers may return generic/estimated offers.
         numPassengers:
           type: integer
           minimum: 1
@@ -543,3 +1126,157 @@ components:
           format: date-time
         requestId:
           type: string
+
+    PricingRequest:
+      type: object
+      required:
+        - searchId
+        - offerId
+      properties:
+        searchId:
+          type: string
+        offerId:
+          type: string
+          description: Signed offer ID (from search results)
+        amenities:
+          type: array
+          items:
+            type: string
+          description: Selected amenity keys
+
+    PricingResponse:
+      type: object
+      properties:
+        searchId:
+          type: string
+        offerId:
+          type: string
+        basePrice:
+          $ref: '#/components/schemas/Money'
+        selectedAmenities:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedAmenity'
+        totalPrice:
+          $ref: '#/components/schemas/Money'
+        message:
+          type: string
+
+    SelectedAmenity:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        price:
+          $ref: '#/components/schemas/Money'
+
+    AmenityInfo:
+      type: object
+      description: Amenity metadata returned by PricingService#getAvailableAmenities
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          $ref: '#/components/schemas/Money'
+
+    BookingChangeSearchRequest:
+      type: object
+      description: |
+        Request to search alternative offers for an existing booking.
+        bookingId is set server-side from the path variable.
+      properties:
+        bookingId:
+          type: string
+          readOnly: true
+        pickupLocation:
+          $ref: '#/components/schemas/LocationDto'
+        dropoffLocation:
+          $ref: '#/components/schemas/LocationDto'
+        pickupDateTime:
+          type: string
+          format: date-time
+        numPassengers:
+          type: integer
+          minimum: 1
+        numBags:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+        mode:
+          type: string
+          enum: [ONE_WAY, ROUND_TRIP, HOURLY]
+
+    BookingChangeCommitRequest:
+      type: object
+      required:
+        - resultId
+      properties:
+        oldBookingId:
+          type: string
+          readOnly: true
+        resultId:
+          type: string
+          description: Identifier of the selected new option from search-changes results
+
+    BookingChangeResponse:
+      type: object
+      properties:
+        oldBookingId:
+          type: string
+        newBookingId:
+          type: string
+        status:
+          type: string
+          description: Overall change status (implementation-defined)
+        message:
+          type: string
+        newBooking:
+          $ref: '#/components/schemas/BookResponse'
+
+    AlertStatus:
+      type: object
+      description: AlertingService.AlertStatus response (structure depends on implementation)
+      additionalProperties: true
+
+    ErrorMetricsResponse:
+      type: object
+      properties:
+        searchErrors:
+          type: integer
+        bookingErrors:
+          type: integer
+        cancellationErrors:
+          type: integer
+        totalDlqSize:
+          type: integer
+
+    DlqSimulateResponse:
+      type: object
+      properties:
+        added:
+          type: integer
+        newSize:
+          type: integer
+
+    DlqClearResponse:
+      type: object
+      properties:
+        cleared:
+          type: integer
+        newSize:
+          type: integer
+
+    TriggerCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        dlqStatus:
+          $ref: '#/components/schemas/AlertStatus'
