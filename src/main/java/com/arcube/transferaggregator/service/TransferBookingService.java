@@ -103,10 +103,14 @@ public class TransferBookingService {
     private String generateIdempotencyKey(BookRequest request) {
         try {
             String data = request.getOfferId() + "|" + request.getPassenger().getEmail();
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(data.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = createMessageDigest().digest(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(hash).substring(0, 32);
         } catch (Exception e) {
             return java.util.UUID.randomUUID().toString();
         }
+    }
+
+    protected MessageDigest createMessageDigest() throws Exception {
+        return MessageDigest.getInstance("SHA-256");
     }
 }

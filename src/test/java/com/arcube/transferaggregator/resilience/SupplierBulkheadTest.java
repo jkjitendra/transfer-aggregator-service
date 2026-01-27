@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,5 +67,36 @@ class SupplierBulkheadTest {
                 
             latch.countDown();
         }
+    }
+
+    @Test
+    void executeRunnableUsesBulkhead() {
+        when(properties.getResilience()).thenReturn(resilienceProperties);
+        when(resilienceProperties.getMaxConcurrentCalls()).thenReturn(1);
+
+        SupplierBulkhead bulkhead = new SupplierBulkhead(properties);
+        Runnable action = mock(Runnable.class);
+
+        bulkhead.execute(action);
+
+        verify(action).run();
+    }
+
+    @Test
+    void interruptedAcquireThrowsServiceBusyException() throws Exception {
+        when(properties.getResilience()).thenReturn(resilienceProperties);
+        when(resilienceProperties.getMaxConcurrentCalls()).thenReturn(1);
+
+        SupplierBulkhead bulkhead = new SupplierBulkhead(properties);
+
+        Thread t = new Thread(() -> {
+            Thread.currentThread().interrupt();
+            assertThatThrownBy(() -> bulkhead.execute(() -> "x"))
+                .isInstanceOf(ServiceBusyException.class)
+                .hasMessage("Request interrupted");
+        });
+
+        t.start();
+        t.join();
     }
 }

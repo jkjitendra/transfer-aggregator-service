@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -19,6 +20,11 @@ public class AggregatorProperties {
     private Map<String, SupplierProperties> suppliers = new HashMap<>();
   
     private ResilienceProperties resilience = new ResilienceProperties();
+
+    // Multi-tenant configuration
+    private String defaultTenant = "default";
+
+    private Map<String, TenantProperties> tenants = new HashMap<>();
 
     public boolean isStubMode() {
         return "stub".equalsIgnoreCase(mode);
@@ -39,5 +45,15 @@ public class AggregatorProperties {
         private int maxConcurrentCalls = 50;
         private int searchRateLimitPerMinute = 80;
         private int pollRateLimitPerMinute = 25;
+    }
+
+    @Data
+    public static class TenantProperties {
+        private String name;
+        private List<String> enabledSuppliers;   // Which suppliers this tenant can use
+        private String defaultCurrency = "USD";
+        private boolean enabled = true;
+        private Integer maxResultsPerSupplier;   // Optional limit per supplier
+        private Map<String, String> metadata;    // Custom tenant metadata
     }
 }

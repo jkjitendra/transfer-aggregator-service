@@ -95,14 +95,15 @@ public class TransferCancellationService {
             .build();
     }
     
-    private SupplierCancelResult executeWithTimeout(TransferSupplier supplier, CancelCommand command) 
+    protected SupplierCancelResult executeWithTimeout(TransferSupplier supplier, CancelCommand command) 
             throws TimeoutException, ExecutionException, InterruptedException {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
             Future<SupplierCancelResult> future = executor.submit(() -> supplier.cancel(command));
-            return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } finally {
-            executor.shutdownNow();
+            try {
+                return future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
         }
     }
     
@@ -132,4 +133,3 @@ public class TransferCancellationService {
         cancellationQueue.enqueue(task);
     }
 }
-

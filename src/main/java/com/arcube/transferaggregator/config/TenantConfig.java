@@ -1,12 +1,11 @@
 package com.arcube.transferaggregator.config;
 
-import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+
+import com.arcube.transferaggregator.config.AggregatorProperties.TenantProperties;
 
 /**
  * Multi-tenant configuration for filtering suppliers per tenant.
@@ -23,34 +22,25 @@ import java.util.Map;
  *       enabled-suppliers: [SKYRIDE, MOZIO]
  *       default-currency: EUR
  */
-@Data
-@Configuration
-@ConfigurationProperties(prefix = "transfer.aggregator")
+@Component
+@RequiredArgsConstructor
 public class TenantConfig {
 
-    private Map<String, TenantProperties> tenants = new HashMap<>();
-    
-    // Default tenant for requests without x-tenant-id header
-    private String defaultTenant = "default";
-
-    @Data
-    public static class TenantProperties {
-        private String name;
-        private List<String> enabledSuppliers;   // Which suppliers this tenant can use
-        private String defaultCurrency = "USD";
-        private boolean enabled = true;
-        private Integer maxResultsPerSupplier;   // Optional limit per supplier
-        private Map<String, String> metadata;    // Custom tenant metadata
-    }
+    private final AggregatorProperties properties;
 
     /**
      * Get tenant config, falling back to default if not found.
      */
     public TenantProperties getTenant(String tenantId) {
+        Map<String, TenantProperties> tenants = properties.getTenants();
         if (tenantId == null || tenantId.isBlank()) {
-            tenantId = defaultTenant;
+            tenantId = properties.getDefaultTenant();
         }
         return tenants.getOrDefault(tenantId, getDefaultTenantConfig());
+    }
+
+    public String getDefaultTenant() {
+        return properties.getDefaultTenant();
     }
 
     /**
