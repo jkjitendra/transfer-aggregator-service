@@ -91,8 +91,12 @@ public class OfferFilterService {
 
         // Amenity filters
         if (filter.getRequiredAmenities() != null && !filter.getRequiredAmenities().isEmpty()) {
-            stream = stream.filter(o -> o.getIncludedAmenities() != null && 
-                o.getIncludedAmenities().containsAll(filter.getRequiredAmenities()));
+            var requiredAmenities = new java.util.HashSet<>(filter.getRequiredAmenities());
+            stream = stream.filter(o -> {
+                List<String> includedAmenities = o.getIncludedAmenities();
+                return includedAmenities != null &&
+                    new java.util.HashSet<>(includedAmenities).containsAll(requiredAmenities);
+            });
         }
 
         // Free cancellation filter (record accessor: isFullyRefundable())

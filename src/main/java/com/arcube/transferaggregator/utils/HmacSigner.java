@@ -25,7 +25,7 @@ public class HmacSigner {
     /** Signs the given data using HMAC-SHA256 and returns a URL-safe Base64 encoded signature */
     public String sign(String data) {
         try {
-            Mac mac = Mac.getInstance(HMAC_ALG);
+            Mac mac = createMac();
             mac.init(new SecretKeySpec(
                 tokenProperties.getSecret().getBytes(StandardCharsets.UTF_8), 
                 HMAC_ALG
@@ -34,6 +34,10 @@ public class HmacSigner {
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new RuntimeException("Failed to sign data", e);
         }
+    }
+
+    protected Mac createMac() throws NoSuchAlgorithmException {
+        return Mac.getInstance(HMAC_ALG);
     }
 
     /** Encodes a string to URL-safe Base64 */
