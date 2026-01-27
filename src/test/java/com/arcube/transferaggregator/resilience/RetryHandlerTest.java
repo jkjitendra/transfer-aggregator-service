@@ -48,4 +48,139 @@ class RetryHandlerTest {
             
         assertThat(attempts[0]).isEqualTo(1); // No retry
     }
+
+    @Test
+    void executeWithRetryUsesDefaultSettings() {
+        RetryHandler handler = new RetryHandler();
+        final int[] attempts = {0};
+
+        String result = handler.executeWithRetry(() -> {
+            attempts[0]++;
+            if (attempts[0] < 2) {
+                throw new RuntimeException("timeout");
+            }
+            return "ok";
+        });
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(attempts[0]).isEqualTo(2);
+    }
+
+    @Test
+    void treatsNullMessageAsNonRetryableByMessage() {
+        RetryHandler handler = new RetryHandler();
+
+        assertThatThrownBy(() -> handler.executeWithRetry(() -> {
+            throw new RuntimeException((String) null);
+        }, 1)).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void retriesOnClassNameHints() {
+        RetryHandler handler = new RetryHandler();
+        final int[] attempts = {0};
+
+        String result = handler.executeWithRetry(() -> {
+            attempts[0]++;
+            if (attempts[0] == 1) {
+                throw new TimeoutException();
+            }
+            return "ok";
+        }, 1);
+
+        assertThat(result).isEqualTo("ok");
+    }
+
+    @Test
+    void retriesOnMessageHints() {
+        RetryHandler handler = new RetryHandler();
+        final int[] attempts = {0};
+
+        String result = handler.executeWithRetry(() -> {
+            attempts[0]++;
+            if (attempts[0] == 1) {
+                throw new RuntimeException("Service temporarily unavailable (503)");
+            }
+            return "ok";
+        }, 1);
+
+        assertThat(result).isEqualTo("ok");
+    }
+
+    @Test
+    void retriesOnMessage502() {
+        RetryHandler handler = new RetryHandler();
+        final int[] attempts = {0};
+
+        String result = handler.executeWithRetry(() -> {
+            attempts[0]++;
+            if (attempts[0] == 1) {
+                throw new RuntimeException("502");
+            }
+            return "ok";
+        }, 1);
+
+        assertThat(result).isEqualTo("ok");
+    }
+
+    @Test
+    void retriesOnConnectAndIoExceptionNames() {
+        RetryHandler handler = new RetryHandler();
+        final int[] attempts = {0};
+
+        String result = handler.executeWithRetry(() -> {
+            attempts[0]++;
+            if (attempts[0] == 1) {
+                throw new ConnectFailure();
+            }
+            return "ok";
+        }, 1);
+
+        assertThat(result).isEqualTo("ok");
+
+        final int[] attempts2 = {0};
+        String result2 = handler.executeWithRetry(() -> {
+            attempts2[0]++;
+            if (attempts2[0] == 1) {
+                throw new IOExceptionFailure();
+            }
+            return "ok";
+        }, 1);
+
+        assertThat(result2).isEqualTo("ok");
+    }
+
+    @Test
+    void sleepInterruptedThrowsRuntime() throws Exception {
+        RetryHandler handler = new RetryHandler();
+
+        Thread t = new Thread(() -> {
+            Thread.currentThread().interrupt();
+            assertThatThrownBy(() -> handler.executeWithRetry(() -> {
+                throw new RuntimeException("timeout");
+            }, 1)).isInstanceOf(RuntimeException.class)
+                .hasMessage("Retry interrupted");
+        });
+
+        t.start();
+        t.join();
+    }
+
+    private static final class TimeoutException extends RuntimeException {
+        private TimeoutException() {
+            super("timeout");
+        }
+    }
+
+    private static final class ConnectFailure extends RuntimeException {
+        private ConnectFailure() {
+            super("connect");
+        }
+    }
+
+    private static final class IOExceptionFailure extends RuntimeException {
+        private IOExceptionFailure() {
+            super("io");
+        }
+    }
 }
