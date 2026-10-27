@@ -1,6 +1,7 @@
 package com.arcube.transferaggregator.exception;
 
 import com.arcube.transferaggregator.dto.ErrorResponse;
+import com.arcube.transferaggregator.workflow.IdempotencyConflictException;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
@@ -95,6 +96,42 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTenantAccess(TenantAccessException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ErrorResponse.of(
             "TENANT_ACCESS_DENIED", "Tenant access denied", null, MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(
+            "IDEMPOTENCY_CONFLICT", ex.getMessage(), "USE_NEW_KEY_FOR_NEW_REQUEST", MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(SearchStateNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSearchNotFound(SearchStateNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(
+            "SEARCH_NOT_FOUND", ex.getMessage(), "RE_SEARCH", MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(SearchStateExpiredException.class)
+    public ResponseEntity<ErrorResponse> handleSearchExpired(SearchStateExpiredException ex) {
+        return ResponseEntity.status(HttpStatus.GONE).body(ErrorResponse.of(
+            "SEARCH_EXPIRED", ex.getMessage(), "RE_SEARCH", MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(SearchStateUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleSearchUnavailable(SearchStateUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ErrorResponse.of(
+            "SEARCH_STATE_UNAVAILABLE", ex.getMessage(), "RETRY", MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(CancellationRequestNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCancellationRequestNotFound(CancellationRequestNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(
+            "CANCELLATION_NOT_FOUND", ex.getMessage(), null, MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidArgument(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(ErrorResponse.of(
+            "INVALID_PARAMETER", ex.getMessage(), null, MDC.get("requestId")));
     }
     
     @ExceptionHandler(SupplierNotFoundException.class)

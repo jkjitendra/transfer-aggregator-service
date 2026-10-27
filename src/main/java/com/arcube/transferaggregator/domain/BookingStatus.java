@@ -6,5 +6,6 @@ public enum BookingStatus {
     CONFIRMED,
     FAILED,
     CANCELLED,
-    PRICE_CHANGED
+    PRICE_CHANGED,
+    UNKNOWN_OUTCOME
 }

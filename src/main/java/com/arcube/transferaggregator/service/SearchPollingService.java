@@ -4,6 +4,10 @@ import com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClie
 import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.config.TenantConfig;
 import com.arcube.transferaggregator.exception.TenantAccessException;
+import com.arcube.transferaggregator.exception.SearchStateExpiredException;
+import com.arcube.transferaggregator.exception.SearchStateNotFoundException;
+import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
+import com.arcube.transferaggregator.resilience.RateLimiter;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Offer;
 import com.arcube.transferaggregator.dto.PageRequest;
@@ -19,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.*;
@@ -28,13 +33,17 @@ import java.util.*;
 public class SearchPollingService {
     
     private static final String CACHE_PREFIX = "search:";
+    private static final String KNOWN_PREFIX = "search-known:";
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
+    private static final Duration KNOWN_TTL = Duration.ofHours(24);
     
     private final SlowMockSupplierClient slowMockClient;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final OfferFilterService filterService;
     private final TenantConfig tenantConfig;
+    @Autowired(required = false)
+    private RateLimiter rateLimiter;
     
     public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
                                  StringRedisTemplate redisTemplate,
@@ -63,10 +72,13 @@ public class SearchPollingService {
             String cacheKey = CACHE_PREFIX + searchId;
             String json = objectMapper.writeValueAsString(state);
             redisTemplate.opsForValue().set(cacheKey, json, CACHE_TTL);
+            redisTemplate.opsForValue().set(KNOWN_PREFIX + searchId, "1", KNOWN_TTL);
             log.debug("Cached search in Redis: id={}, incomplete={}, suppliers={}", 
                 searchId, response.isIncomplete(), supplierSearchIds.keySet());
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize search state for caching: {}", e.getMessage());
+            throw new SearchStateUnavailableException(e);
+        } catch (RuntimeException e) {
+            throw new SearchStateUnavailableException(e);
         }
     }
     
@@ -76,37 +88,37 @@ public class SearchPollingService {
     public SearchResponse poll(String searchId, SearchFilter filter, 
                                 SearchSort sort, PageRequest page) {
         String cacheKey = CACHE_PREFIX + searchId;
-        String json = redisTemplate.opsForValue().get(cacheKey);
+        String json;
+        try {
+            json = redisTemplate.opsForValue().get(cacheKey);
+        } catch (RuntimeException e) {
+            throw new SearchStateUnavailableException(e);
+        }
         
         if (json == null) {
-            log.warn("Poll for unknown searchId: {}", searchId);
-            return SearchResponse.builder()
-                .searchId(searchId)
-                .offers(List.of())
-                .incomplete(false)
-                .supplierStatuses(Map.of())
-                .totalCount(0)
-                .page(0)
-                .totalPages(0)
-                .build();
+            try {
+                if (redisTemplate.opsForValue().get(KNOWN_PREFIX + searchId) != null) {
+                    throw new SearchStateExpiredException();
+                }
+            } catch (SearchStateExpiredException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new SearchStateUnavailableException(e);
+            }
+            throw new SearchStateNotFoundException();
         }
         
         SearchStateDto state;
         try {
             state = objectMapper.readValue(json, SearchStateDto.class);
         } catch (JsonProcessingException e) {
-            log.error("Failed to deserialize search state: {}", e.getMessage());
-            return SearchResponse.builder()
-                .searchId(searchId)
-                .offers(List.of())
-                .incomplete(false)
-                .supplierStatuses(Map.of())
-                .build();
+            throw new SearchStateUnavailableException(e);
         }
         String tenantId = TenantContext.getTenantId();
         if (tenantId != null && !tenantId.equals(state.getTenantId())) {
             throw new TenantAccessException();
         }
+        if (rateLimiter != null) rateLimiter.acquirePollPermit(searchId);
         
         // Poll slow supplier if still incomplete
         boolean stillIncomplete = false;
@@ -140,7 +152,9 @@ public class SearchPollingService {
             String updatedJson = objectMapper.writeValueAsString(state);
             redisTemplate.opsForValue().set(cacheKey, updatedJson, CACHE_TTL);
         } catch (JsonProcessingException e) {
-            log.error("Failed to update cache: {}", e.getMessage());
+            throw new SearchStateUnavailableException(e);
+        } catch (RuntimeException e) {
+            throw new SearchStateUnavailableException(e);
         }
         
         // Apply filtering, sorting, pagination

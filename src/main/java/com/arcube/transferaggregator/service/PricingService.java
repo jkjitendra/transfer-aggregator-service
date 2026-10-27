@@ -4,6 +4,9 @@ import com.arcube.transferaggregator.adapters.idcodec.OfferIdCodec;
 import com.arcube.transferaggregator.adapters.idcodec.OfferPayload;
 import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.exception.TenantAccessException;
+import com.arcube.transferaggregator.exception.SearchStateExpiredException;
+import com.arcube.transferaggregator.exception.SearchStateNotFoundException;
+import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Money;
 import com.arcube.transferaggregator.domain.Offer;
@@ -145,10 +148,24 @@ public class PricingService {
 
     private OfferDto findOfferFromCache(String searchId, String offerId) {
         String cacheKey = CACHE_PREFIX + searchId;
-        String json = redisTemplate.opsForValue().get(cacheKey);
+        String json;
+        try {
+            json = redisTemplate.opsForValue().get(cacheKey);
+        } catch (RuntimeException exception) {
+            throw new SearchStateUnavailableException(exception);
+        }
         
         if (json == null) {
-            return null;
+            try {
+                if (redisTemplate.opsForValue().get("search-known:" + searchId) != null) {
+                    throw new SearchStateExpiredException();
+                }
+            } catch (SearchStateExpiredException exception) {
+                throw exception;
+            } catch (RuntimeException exception) {
+                throw new SearchStateUnavailableException(exception);
+            }
+            throw new SearchStateNotFoundException();
         }
 
         try {
@@ -162,8 +179,7 @@ public class PricingService {
                 .findFirst()
                 .orElse(null);
         } catch (JsonProcessingException e) {
-            log.error("Failed to deserialize search state: {}", e.getMessage());
-            return null;
+            throw new SearchStateUnavailableException(e);
         }
     }
 

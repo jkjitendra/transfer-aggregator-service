@@ -42,6 +42,8 @@ public class BookingChangeController {
             @Valid @RequestBody BookingChangeCommitRequest request) {
         log.info("Booking change commit requested");
         request.setOldBookingId(bookingId);
-        return ResponseEntity.ok(bookingChangeService.commitChange(request, idempotencyKey));
+        BookingChangeResponse response = bookingChangeService.commitChange(request, idempotencyKey);
+        return "PENDING".equals(response.getStatus()) || "UNKNOWN_OUTCOME".equals(response.getStatus())
+            ? ResponseEntity.accepted().body(response) : ResponseEntity.ok(response);
     }
 }

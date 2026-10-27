@@ -1,6 +1,7 @@
 package com.arcube.transferaggregator.controller;
 
 import com.arcube.transferaggregator.dto.*;
+import com.arcube.transferaggregator.domain.BookingStatus;
 import com.arcube.transferaggregator.service.*;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -96,7 +97,9 @@ public class TransferController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody BookRequest request) {
         log.info("Booking requested");
-        return ResponseEntity.ok(bookingService.book(request, idempotencyKey));
+        BookResponse response = bookingService.book(request, idempotencyKey);
+        return response.getStatus() == BookingStatus.PENDING || response.getStatus() == BookingStatus.UNKNOWN_OUTCOME
+            ? ResponseEntity.accepted().body(response) : ResponseEntity.ok(response);
     }
     
     @DeleteMapping("/bookings/{bookingId}")
@@ -104,7 +107,9 @@ public class TransferController {
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @PathVariable String bookingId) {
         log.info("Cancellation requested");
-        return ResponseEntity.ok(cancellationService.cancel(bookingId));
+        CancelResponse response = cancellationService.cancel(bookingId);
+        return "PENDING".equals(response.getStatus()) || "UNKNOWN_OUTCOME".equals(response.getStatus())
+            ? ResponseEntity.accepted().body(response) : ResponseEntity.ok(response);
     }
     
     @GetMapping("/bookings/{bookingId}/cancel-status")

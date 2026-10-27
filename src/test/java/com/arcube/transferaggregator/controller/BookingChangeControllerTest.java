@@ -84,7 +84,7 @@ class BookingChangeControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-1")
                 .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isOk())
+            .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.status").value("PENDING"));
 
         ArgumentCaptor<BookingChangeCommitRequest> captor = ArgumentCaptor.forClass(BookingChangeCommitRequest.class);

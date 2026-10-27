@@ -14,6 +14,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CancelResponse {
+    private String operationId;
     private String bookingId;
     private String status;
     private Money refundAmount;

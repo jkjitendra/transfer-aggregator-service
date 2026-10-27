@@ -12,9 +12,11 @@ import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.resilience.CancellationDLQ;
 import com.arcube.transferaggregator.resilience.CancellationQueue;
 import com.arcube.transferaggregator.resilience.CancellationTask;
+import com.arcube.transferaggregator.workflow.DurableCancellationWorkflow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Optional;
 import java.util.concurrent.*;
@@ -29,11 +31,14 @@ public class TransferCancellationService {
     private final BookingIdCodec bookingIdCodec;
     private final CancellationQueue cancellationQueue;
     private final CancellationDLQ cancellationDLQ;
+    @Autowired(required = false)
+    private DurableCancellationWorkflow durableWorkflow;
     
     private static final long TIMEOUT_SECONDS = 5;
     
     public CancelResponse cancel(String bookingId) {
         BookingPayload payload = bookingIdCodec.decode(bookingId);
+        if (durableWorkflow != null) return durableWorkflow.request(bookingId, payload);
         log.info("Cancelling with supplier={}", payload.supplierCode());
         
         // Check if already in queue (pending retry)
@@ -74,6 +79,7 @@ public class TransferCancellationService {
     /** Check the status of a cancellation */
     public CancelResponse getStatus(String bookingId) {
         bookingIdCodec.decode(bookingId);
+        if (durableWorkflow != null) return durableWorkflow.status(bookingId);
         // Check if pending in queue
         Optional<CancellationTask> pending = cancellationQueue.getPending(bookingId);
         if (pending.isPresent()) {

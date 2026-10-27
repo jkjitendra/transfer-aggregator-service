@@ -25,7 +25,7 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "transfer.aggregator.suppliers.skyride.enabled", havingValue = "true", matchIfMissing = false)
-public class SkyRideSupplierClient implements TransferSupplier {
+public class SkyRideSupplierClient implements IdempotentCancellationSupplier {
     
     private static final String SUPPLIER_CODE = "SKYRIDE";
     private static final String SUPPLIER_NAME = "SkyRide Premium Transfers";

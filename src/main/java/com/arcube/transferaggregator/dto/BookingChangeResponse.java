@@ -11,6 +11,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class BookingChangeResponse {
 
+    private String operationId;
+
     private String status;  // SUCCESS, PENDING, FAILED
     private String newBookingId;
     private String newConfirmationNumber;
@@ -39,6 +41,13 @@ public class BookingChangeResponse {
             .status("FAILED")
             .errorCode(errorCode)
             .errorMessage(errorMessage)
+            .build();
+    }
+
+    public static BookingChangeResponse unknownOutcome(String operationId) {
+        return BookingChangeResponse.builder().operationId(operationId)
+            .status("UNKNOWN_OUTCOME").errorCode("UNKNOWN_OUTCOME")
+            .errorMessage("Supplier outcome is being reviewed; do not retry with a new key")
             .build();
     }
 }

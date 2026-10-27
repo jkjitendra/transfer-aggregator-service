@@ -1,13 +1,21 @@
 package com.arcube.transferaggregator.resilience;
 
 import com.arcube.transferaggregator.config.AggregatorProperties;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.exception.RateLimitExceededException;
+import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.Objects;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -21,6 +29,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 @Component
 public class RateLimiter {
+    private static final DefaultRedisScript<Long> INCREMENT_WITH_TTL = new DefaultRedisScript<>(
+        "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],60) end; return n", Long.class);
+    @Autowired(required = false)
+    private StringRedisTemplate redis;
+    @Autowired(required = false)
+    private Environment environment;
     
     private final int searchRateLimit;
     private final int pollRateLimit;
@@ -53,6 +67,10 @@ public class RateLimiter {
      * @throws RateLimitExceededException if limit exceeded
      */
     public void acquireSearchPermit(String supplierCode) {
+        if (distributed()) {
+            acquireDistributed("search", supplierCode, searchRateLimit);
+            return;
+        }
         String key = "search:" + supplierCode;
         AtomicInteger counter = Objects.requireNonNull(
             searchCounters.get(key, k -> new AtomicInteger(0)));
@@ -75,6 +93,10 @@ public class RateLimiter {
      * @throws RateLimitExceededException if limit exceeded
      */
     public void acquirePollPermit(String searchId) {
+        if (distributed()) {
+            acquireDistributed("poll", searchId, pollRateLimit);
+            return;
+        }
         String key = "poll:" + searchId;
         AtomicInteger counter = Objects.requireNonNull(
             pollCounters.get(key, k -> new AtomicInteger(0)));
@@ -88,5 +110,24 @@ public class RateLimiter {
         }
         
         log.debug("Poll permit acquired for search {}: {}/{}", searchId, current, pollRateLimit);
+    }
+
+    private boolean distributed() {
+        return redis != null && environment != null
+            && !environment.acceptsProfiles(Profiles.of("demo", "test"));
+    }
+
+    private void acquireDistributed(String kind, String identity, int limit) {
+        String tenant = TenantContext.getTenantIdOrDefault("default");
+        String key = "rate:" + kind + ":" + tenant + ":" + identity;
+        try {
+            Long count = redis.execute(INCREMENT_WITH_TTL, List.of(key));
+            if (count == null) throw new IllegalStateException("Redis rate-limit counter returned no result");
+            if (count > limit) throw new RateLimitExceededException("Rate limit exceeded; retry in 60 seconds");
+        } catch (RateLimitExceededException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new SearchStateUnavailableException(exception);
+        }
     }
 }

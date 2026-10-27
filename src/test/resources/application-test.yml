@@ -3,3 +3,10 @@ security:
     enabled: false
   token:
     secret: test-only-key-not-for-production-123456789012345
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  flyway:
+    enabled: false

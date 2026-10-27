@@ -3,12 +3,14 @@ package com.arcube.transferaggregator.controller;
 import com.arcube.transferaggregator.observability.ErrorMetrics;
 import com.arcube.transferaggregator.service.AlertingService;
 import com.arcube.transferaggregator.service.AlertingService.AlertStatus;
+import com.arcube.transferaggregator.workflow.CancellationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
@@ -23,6 +25,8 @@ public class AlertController {
 
     private final AlertingService alertingService;
     private final ErrorMetrics errorMetrics;
+    @Autowired(required = false)
+    private CancellationRepository durableCancellations;
 
     /**
      * Get current DLQ status.
@@ -43,7 +47,8 @@ public class AlertController {
             "searchErrors", errorMetrics.getSearchErrorCount(),
             "bookingErrors", errorMetrics.getBookingErrorCount(),
             "cancellationErrors", errorMetrics.getCancellationErrorCount(),
-            "totalDlqSize", errorMetrics.getTotalDlqSize()
+            "totalDlqSize", durableCancellations == null
+                ? errorMetrics.getTotalDlqSize() : durableCancellations.activeDeadLetterCount()
         ));
     }
 
