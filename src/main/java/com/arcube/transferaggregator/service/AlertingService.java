@@ -1,5 +1,7 @@
 package com.arcube.transferaggregator.service;
 
+import com.arcube.transferaggregator.workflow.CancellationRepository;
+
 import com.arcube.transferaggregator.config.AlertingConfig;
 import com.arcube.transferaggregator.observability.ErrorMetrics;
 import jakarta.annotation.PostConstruct;
@@ -9,6 +11,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
@@ -21,6 +24,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 @RequiredArgsConstructor
 public class AlertingService {
+    @Autowired(required = false)
+    private CancellationRepository durableCancellations;
 
     private final ErrorMetrics errorMetrics;
     private final AlertingConfig alertingConfig;
@@ -63,7 +68,7 @@ public class AlertingService {
     }
 
     private void checkDlqSize() {
-        int dlqSize = errorMetrics.getTotalDlqSize();
+        int dlqSize = currentDlqSize();
         
         if (dlqSize >= alertingConfig.getDlqCriticalThreshold()) {
             sendDlqAlert(AlertLevel.CRITICAL, dlqSize);
@@ -208,7 +213,7 @@ public class AlertingService {
      * Manually trigger a DLQ check (for testing/admin endpoints).
      */
     public AlertStatus getDlqStatus() {
-        int dlqSize = errorMetrics.getTotalDlqSize();
+        int dlqSize = currentDlqSize();
         AlertLevel level = AlertLevel.OK;
         
         if (dlqSize >= alertingConfig.getDlqCriticalThreshold()) {
@@ -232,4 +237,9 @@ public class AlertingService {
         int warningThreshold,
         int criticalThreshold
     ) {}
+
+    private int currentDlqSize() {
+        return durableCancellations == null ? errorMetrics.getTotalDlqSize()
+            : durableCancellations.activeDeadLetterCount();
+    }
 }

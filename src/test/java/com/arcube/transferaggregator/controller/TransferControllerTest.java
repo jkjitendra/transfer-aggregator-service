@@ -135,7 +135,7 @@ class TransferControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-1")
                 .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isOk())
+            .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.status").value("PENDING"));
     }
 
@@ -145,7 +145,7 @@ class TransferControllerTest {
         when(cancellationService.getStatus("b1")).thenReturn(CancelResponse.failed("b1", "failed"));
 
         mockMvc.perform(delete("/api/v1/transfers/bookings/b1"))
-            .andExpect(status().isOk())
+            .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.status").value("PENDING"));
 
         mockMvc.perform(get("/api/v1/transfers/bookings/b1/cancel-status"))

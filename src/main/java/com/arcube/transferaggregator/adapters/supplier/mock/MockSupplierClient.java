@@ -21,7 +21,7 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "transfer.aggregator.mode", havingValue = "stub", matchIfMissing = true)
-public class MockSupplierClient implements TransferSupplier, ReservationChangeSupplier {
+public class MockSupplierClient implements TransferSupplier, ReservationChangeSupplier, IdempotentCancellationSupplier {
     
     private static final String SUPPLIER_CODE = "STUB";
     private static final String SUPPLIER_NAME = "Mock Supplier (Testing)";

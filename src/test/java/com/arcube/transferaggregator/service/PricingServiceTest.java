@@ -3,6 +3,8 @@ package com.arcube.transferaggregator.service;
 import com.arcube.transferaggregator.adapters.idcodec.OfferIdCodec;
 import com.arcube.transferaggregator.adapters.idcodec.OfferPayload;
 import com.arcube.transferaggregator.config.TokenProperties;
+import com.arcube.transferaggregator.exception.SearchStateNotFoundException;
+import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
 import com.arcube.transferaggregator.domain.Money;
 import com.arcube.transferaggregator.dto.PricingRequest;
 import com.arcube.transferaggregator.dto.PricingResponse;
@@ -20,6 +22,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class PricingServiceTest {
@@ -270,14 +273,9 @@ class PricingServiceTest {
 
         PricingService service = new PricingService(codec, redis, objectMapper);
 
-        PricingResponse response = service.calculatePrice(PricingRequest.builder()
-            .searchId("missing")
-            .offerId(offerId)
-            .build());
-
-        assertThat(response.getOfferId()).isEqualTo(offerId);
-        assertThat(response.getBasePrice()).isNull();
-        assertThat(response.getFinalPrice()).isNull();
+        assertThatThrownBy(() -> service.calculatePrice(PricingRequest.builder()
+            .searchId("missing").offerId(offerId).build()))
+            .isInstanceOf(SearchStateNotFoundException.class);
     }
 
     @Test
@@ -296,14 +294,9 @@ class PricingServiceTest {
 
         PricingService service = new PricingService(codec, redis, mapper);
 
-        PricingResponse response = service.calculatePrice(PricingRequest.builder()
-            .searchId("bad")
-            .offerId(offerId)
-            .build());
-
-        assertThat(response.getOfferId()).isEqualTo(offerId);
-        assertThat(response.getBasePrice()).isNull();
-        assertThat(response.getFinalPrice()).isNull();
+        assertThatThrownBy(() -> service.calculatePrice(PricingRequest.builder()
+            .searchId("bad").offerId(offerId).build()))
+            .isInstanceOf(SearchStateUnavailableException.class);
     }
 
     private OfferIdCodec offerIdCodec() {

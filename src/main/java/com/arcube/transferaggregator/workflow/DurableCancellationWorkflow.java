@@ -1,0 +1,168 @@
+package com.arcube.transferaggregator.workflow;
+
+import com.arcube.transferaggregator.adapters.idcodec.BookingPayload;
+import com.arcube.transferaggregator.config.TenantContext;
+import com.arcube.transferaggregator.domain.CancelCommand;
+import com.arcube.transferaggregator.dto.CancelResponse;
+import com.arcube.transferaggregator.exception.CancellationRequestNotFoundException;
+import com.arcube.transferaggregator.exception.SupplierNotFoundException;
+import com.arcube.transferaggregator.ports.IdempotentCancellationSupplier;
+import com.arcube.transferaggregator.ports.SupplierCancelResult;
+import com.arcube.transferaggregator.ports.SupplierRegistry;
+import com.arcube.transferaggregator.ports.TransferSupplier;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+/** Persists cancellation before acknowledgement and processes leased jobs in bounded batches. */
+@Slf4j
+@Service
+@Profile("!demo & !test")
+public class DurableCancellationWorkflow {
+    private final CancellationRepository repository;
+    private final SupplierRegistry registry;
+    private final int maxAttempts;
+
+    public DurableCancellationWorkflow(CancellationRepository repository, SupplierRegistry registry,
+                                       @Value("${workflow.cancellation-max-attempts:3}") int maxAttempts) {
+        this.repository = repository;
+        this.registry = registry;
+        if (maxAttempts < 1 || maxAttempts > 20) throw new IllegalStateException("Invalid cancellation attempt limit");
+        this.maxAttempts = maxAttempts;
+    }
+
+    public CancelResponse request(String bookingId, BookingPayload payload) {
+        String tenant = tenant();
+        registry.getSupplier(payload.supplierCode())
+            .orElseThrow(() -> new SupplierNotFoundException(payload.supplierCode()));
+        CancellationRepository.Job job = repository.request(tenant, bookingId,
+            payload.supplierCode(), payload.reservationId());
+        return statusFor(job, bookingId);
+    }
+
+    public CancelResponse status(String bookingId) {
+        CancellationRepository.Job job = repository.find(tenant(), WorkflowRepository.sha256(bookingId))
+            .orElseThrow(CancellationRequestNotFoundException::new);
+        return statusFor(job, bookingId);
+    }
+
+    public List<CancellationRepository.DeadLetter> deadLetters(int limit) {
+        return repository.deadLetters(limit);
+    }
+
+    public boolean replay(UUID jobId, String actor, String evidenceReference) {
+        validateEvidence(evidenceReference);
+        CancellationRepository.Job job = repository.find(jobId).orElseThrow(CancellationRequestNotFoundException::new);
+        TransferSupplier supplier = registry.getSupplier(job.supplierCode())
+            .orElseThrow(() -> new SupplierNotFoundException(job.supplierCode()));
+        if (!(supplier instanceof IdempotentCancellationSupplier)) {
+            throw new IllegalArgumentException("Supplier cancellation replay is not verified safe");
+        }
+        return repository.replay(jobId, actor, evidenceReference);
+    }
+
+    public boolean resolve(UUID jobId, String actor, String evidenceReference) {
+        validateEvidence(evidenceReference);
+        return repository.resolve(jobId, actor, evidenceReference);
+    }
+
+    @Scheduled(fixedDelay = 5000, initialDelay = 10000)
+    public void processDue() {
+        for (CancellationRepository.Job expired : repository.expiredLeases()) {
+            boolean safe = registry.getSupplier(expired.supplierCode())
+                .filter(IdempotentCancellationSupplier.class::isInstance).isPresent();
+            repository.recover(expired, safe, maxAttempts);
+        }
+        List<CancellationRepository.Job> jobs = repository.claimDue(20);
+        if (!jobs.isEmpty()) {
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                CompletableFuture<?>[] attempts = jobs.stream()
+                    .map(job -> CompletableFuture.runAsync(() -> process(job), executor))
+                    .toArray(CompletableFuture[]::new);
+                CompletableFuture.allOf(attempts).join();
+            }
+        }
+    }
+
+    private void process(CancellationRepository.Job job) {
+        TransferSupplier supplier = registry.getSupplier(job.supplierCode()).orElse(null);
+        if (supplier == null) {
+            repository.failedAttempt(job, true, true, maxAttempts, "SUPPLIER_UNAVAILABLE");
+            return;
+        }
+        boolean safeToRetry = supplier instanceof IdempotentCancellationSupplier;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            Future<SupplierCancelResult> future = executor.submit(() -> supplier.cancel(
+                CancelCommand.of(repository.reservationId(job), job.supplierCode())));
+            SupplierCancelResult result;
+            try {
+                result = future.get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException exception) {
+                future.cancel(true);
+                repository.failedAttempt(job, safeToRetry, false, maxAttempts, "SUPPLIER_TIMEOUT");
+                return;
+            }
+            if (result.isSuccess()) {
+                CancelResponse response = result.alreadyCancelled()
+                    ? CancelResponse.alreadyCancelled(null) : CancelResponse.success(null, result.refundAmount());
+                response.setOperationId(job.operationId().toString());
+                repository.succeeded(job, response);
+            } else {
+                boolean permanent = "TOO_LATE_TO_CANCEL".equals(result.errorCode());
+                repository.failedAttempt(job, safeToRetry, permanent, maxAttempts,
+                    permanent ? "TOO_LATE_TO_CANCEL" : "SUPPLIER_REJECTED");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            repository.failedAttempt(job, safeToRetry, false, maxAttempts, "INTERRUPTED");
+        } catch (ExecutionException exception) {
+            log.warn("Cancellation attempt ended without a verified supplier result");
+            repository.failedAttempt(job, safeToRetry, false, maxAttempts, "SUPPLIER_ERROR");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private CancelResponse statusFor(CancellationRepository.Job job, String bookingId) {
+        if ("SUCCEEDED".equals(job.state())) {
+            CancelResponse response = repository.storedResponse(job).orElseThrow();
+            response.setBookingId(bookingId);
+            response.setOperationId(job.operationId().toString());
+            return response;
+        }
+        CancelResponse response = switch (job.state()) {
+            case "DLQ" -> CancelResponse.failed(bookingId, "Cancellation needs operator review");
+            case "UNKNOWN_OUTCOME" -> CancelResponse.builder().bookingId(bookingId)
+                .status("UNKNOWN_OUTCOME").message("Supplier outcome is being reviewed").build();
+            case "RESOLVED" -> CancelResponse.builder().bookingId(bookingId)
+                .status("RESOLVED").message("Operator marked this request resolved").build();
+            default -> CancelResponse.pending(bookingId, "Cancellation is queued or in progress");
+        };
+        response.setOperationId(job.operationId().toString());
+        return response;
+    }
+
+    private String tenant() {
+        String tenant = TenantContext.getTenantId();
+        if (tenant == null) throw new IllegalStateException("Authenticated tenant context is required");
+        return tenant;
+    }
+
+    private void validateEvidence(String reference) {
+        if (reference == null || !reference.matches("[A-Za-z0-9._:/-]{4,128}")) {
+            throw new IllegalArgumentException("An evidence reference of 4-128 safe characters is required");
+        }
+    }
+}

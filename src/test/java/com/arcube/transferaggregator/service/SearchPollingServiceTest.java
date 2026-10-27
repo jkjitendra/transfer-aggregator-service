@@ -2,6 +2,9 @@ package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.config.AggregatorProperties;
 import com.arcube.transferaggregator.config.TenantConfig;
+import com.arcube.transferaggregator.exception.SearchStateNotFoundException;
+import com.arcube.transferaggregator.exception.SearchStateExpiredException;
+import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
 import com.arcube.transferaggregator.domain.Money;
 import com.arcube.transferaggregator.domain.Offer;
 import com.arcube.transferaggregator.domain.Amenity;
@@ -28,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class SearchPollingServiceTest {
@@ -50,10 +54,22 @@ class SearchPollingServiceTest {
         SearchPollingService service = new SearchPollingService(
             Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
 
-        SearchResponse response = service.poll("missing", null, SearchSort.byPrice(), PageRequest.first());
+        assertThatThrownBy(() -> service.poll("missing", null, SearchSort.byPrice(), PageRequest.first()))
+            .isInstanceOf(SearchStateNotFoundException.class);
+    }
 
-        assertThat(response.getOffers()).isEmpty();
-        assertThat(response.getTotalCount()).isEqualTo(0);
+    @Test
+    void distinguishesExpiredSearchFromUnknownId() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> ops = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(ops);
+        when(ops.get("search:expired")).thenReturn(null);
+        when(ops.get("search-known:expired")).thenReturn("1");
+        SearchPollingService service = new SearchPollingService(
+            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
+        assertThatThrownBy(() -> service.poll("expired"))
+            .isInstanceOf(SearchStateExpiredException.class);
     }
 
     @Test
@@ -152,7 +168,8 @@ class SearchPollingServiceTest {
         SearchPollingService failingService = new SearchPollingService(
             Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig());
 
-        failingService.cacheSearchState("s-cache", response, Map.of());
+        assertThatThrownBy(() -> failingService.cacheSearchState("s-cache", response, Map.of()))
+            .isInstanceOf(SearchStateUnavailableException.class);
         verify(ops, times(1)).set(eq("search:s-cache"), anyString(), any());
     }
 
@@ -167,10 +184,8 @@ class SearchPollingServiceTest {
         SearchPollingService service = new SearchPollingService(
             Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
 
-        SearchResponse response = service.poll("bad", null, SearchSort.byPrice(), PageRequest.first());
-
-        assertThat(response.getOffers()).isEmpty();
-        assertThat(response.isIncomplete()).isFalse();
+        assertThatThrownBy(() -> service.poll("bad", null, SearchSort.byPrice(), PageRequest.first()))
+            .isInstanceOf(SearchStateUnavailableException.class);
     }
 
     @Test
@@ -361,8 +376,8 @@ class SearchPollingServiceTest {
         SearchPollingService service = new SearchPollingService(
             Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig());
 
-        SearchResponse response = service.poll("s5", null, SearchSort.byPrice(), PageRequest.first());
-        assertThat(response.getSearchId()).isEqualTo("s5");
+        assertThatThrownBy(() -> service.poll("s5", null, SearchSort.byPrice(), PageRequest.first()))
+            .isInstanceOf(SearchStateUnavailableException.class);
     }
 
     @Test
@@ -376,8 +391,7 @@ class SearchPollingServiceTest {
         SearchPollingService service = new SearchPollingService(
             Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
 
-        SearchResponse response = service.poll("missing");
-        assertThat(response.getSearchId()).isEqualTo("missing");
-        assertThat(response.getOffers()).isEmpty();
+        assertThatThrownBy(() -> service.poll("missing"))
+            .isInstanceOf(SearchStateNotFoundException.class);
     }
 }

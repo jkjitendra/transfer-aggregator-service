@@ -30,8 +30,8 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 | **Search** | Query multiple suppliers in parallel, return aggregated offers |
 | **Poll** | Retrieve async results with filtering, sorting, and pagination |
 | **Pricing** | Calculate total price with selected amenities |
-| **Book** | Create a booking with a process-local, five-minute response cache for repeated idempotency keys |
-| **Cancel** | Try cancellation synchronously, then use an in-memory retry queue and DLQ on failure |
+| **Book** | Atomically claim an idempotency key in PostgreSQL before a supplier write outside demo; ambiguous outcomes enter review |
+| **Cancel** | Persist a cancellation job before acknowledgement, then process it with PostgreSQL leases and a durable DLQ outside demo |
 | **Cancel Status** | Check the status of a cancellation request |
 | **Booking Change** | Search for alternatives and commit changes to existing bookings |
 
@@ -59,7 +59,7 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 | **Build** | Maven (wrapper included) |
 | **Concurrency** | Virtual Threads (Project Loom) |
 | **HTTP Client** | Spring WebFlux WebClient (non-blocking) |
-| **Caching** | Caffeine (in-memory) + Redis (distributed) |
+| **Persistence** | PostgreSQL/Flyway for write workflows; Redis for expiring search state and distributed rate limits; Caffeine for demo-only state |
 | **Resilience** | Resilience4j (Circuit Breaker) + Custom (Rate Limiter, Bulkhead, Retry) |
 | **Observability** | Micrometer + Prometheus metrics |
 | **API Docs** | OpenAPI 3.0 + Swagger UI |
@@ -174,16 +174,16 @@ Adding a new supplier is straightforward:
 |---------|-------------|
 | **Parallel Supplier Search** | Queries all enabled suppliers concurrently with configurable timeouts. Returns partial results if some suppliers time out. |
 | **Signed Stateless Tokens** | `offerId` and `bookingId` are Base64url-encoded, HMAC-signed tokens containing supplier context. Their contents are readable after decoding and the token alone does not authorize an operation. |
-| **Idempotency** | Booking uses an in-memory five-minute response cache for `Idempotency-Key`; it is not atomic or durable. Commit-change accepts the header but does not yet apply idempotency. |
+| **Idempotency** | Booking and supported change commits require `Idempotency-Key` outside demo. A PostgreSQL claim is scoped by tenant, operation type, and key hash; different request fingerprints conflict. Demo retains a local booking cache. |
 | **Polling with Filtering/Sorting/Pagination** | Poll endpoint supports price range, vehicle type/class/category, capacity, amenities, provider ratings, cancellation policy, and duration filters. Sorting by price, rating, or duration. **Pagination is applied on the aggregated response from all suppliers.** |
 | **Pricing with Amenities** | Calculate total price including optional amenities (baby seats, WiFi, etc.). Get available amenities per offer. |
 | **Booking Change Workflow** | Search and commit through suppliers implementing `ReservationChangeSupplier`; the default mock implements it. Other suppliers return an unsupported result. |
 | **Circuit Breaker** | Per-supplier circuit breaker (Resilience4j) with configurable thresholds. Fails fast for unhealthy suppliers. |
-| **Rate Limiting** | Process-local search permits per supplier (80/min) and a per-searchId poll limiter component (25/min); the current poll controller does not call that limiter. |
+| **Rate Limiting** | Redis-backed search and poll counters across replicas outside demo; local counters in demo/test. The poll service consumes a permit. |
 | **Bulkhead** | Limits concurrent supplier calls to prevent resource exhaustion. |
 | **Retry with Backoff** | Automatic retries for transient failures with exponential backoff. |
-| **Async Cancellation Queue** | Failed or timed-out cancellations enter a process-local retry queue. |
-| **Dead Letter Queue (DLQ)** | Exhausted cancellation retries enter an in-memory DLQ, lost on restart. |
+| **Async Cancellation Queue** | Cancellation jobs are persisted before acknowledgement and claimed in bounded leased batches outside demo. Automatic retry is limited to suppliers with a verified idempotent cancellation contract. |
+| **Dead Letter Queue (DLQ)** | Exhausted safe retries enter PostgreSQL-backed dead letters. Operator replay/resolve requires an evidence reference and writes an audit event. |
 | **Admin Alerting Endpoints** | Support and operator roles can read alert counters; only operators can trigger checks. Simulate/clear routes are registered only in the `demo` profile. Counters still do not operate on real DLQ entries. |
 | **Multi-Tenancy** | The validated JWT tenant claim selects an explicitly configured, enabled tenant. A conflicting `X-Tenant-Id` is rejected. Supplier filtering, default currency, and per-supplier result limits are enforced. |
 | **Health & Metrics** | Health probes at `/actuator/health`. Prometheus metrics for monitoring. |
@@ -196,7 +196,8 @@ Adding a new supplier is straightforward:
 
 - **Java 21+** — Verify with `java -version`
 - **Maven** — Wrapper included (`./mvnw`)
-- **Redis** — Required to use the incomplete-search polling path; the service writes and reads that state through Redis
+- **Redis** — Required for search polling and distributed rate limits outside demo
+- **PostgreSQL** — Required outside demo; Flyway applies the workflow schema at startup
 
 ### Clone & Setup
 
@@ -295,8 +296,8 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `transfer.aggregator.resilience.max-concurrent-calls` | `50` | Max concurrent supplier calls (bulkhead) |
-| `transfer.aggregator.resilience.search-rate-limit-per-minute` | `80` | Process-local search limit per supplier |
-| `transfer.aggregator.resilience.poll-rate-limit-per-minute` | `25` | Configured per-searchId poll limit; currently not enforced by the poll controller |
+| `transfer.aggregator.resilience.search-rate-limit-per-minute` | `80` | Per-tenant, per-supplier Redis limit outside demo; process-local in demo |
+| `transfer.aggregator.resilience.poll-rate-limit-per-minute` | `25` | Poll limit per search ID; Redis-backed outside demo |
 
 ### Circuit Breaker Configuration (Resilience4j)
 
@@ -339,6 +340,21 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `spring.data.redis.port` | `6379` | Redis port (standalone mode) |
 | `spring.data.redis.password` | `(empty)` | Redis password |
 | `spring.data.redis.timeout` | `2000ms` | Connection timeout |
+
+### Durable Workflow Configuration
+
+Outside the `demo` and `test` profiles, the service requires PostgreSQL and a base64-encoded 32-byte `WORKFLOW_ENCRYPTION_KEY`. Flyway creates `operations`, `idempotency_records`, `cancellation_jobs`, `dead_letters`, and `audit_events`. Sensitive response and reservation payloads are encrypted before storage. Backups and PostgreSQL volumes must also be encrypted and access controlled. Retain the encryption key for as long as persisted records or backups need to be readable.
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD` | PostgreSQL JDBC connection |
+| `WORKFLOW_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-GCM key; required outside demo/test |
+| `IDEMPOTENCY_RETENTION_DAYS` | Same-key replay window (default 7 days) |
+| `OPERATION_RETENTION_DAYS` | Terminal operation and audit retention (default 90 days) |
+| `CANCELLATION_MAX_ATTEMPTS` | Maximum verified-safe cancellation attempts (default 3) |
+| `CANCELLATION_LEASE_SECONDS` | Worker claim lease (default 30 seconds) |
+
+Booking and supported change commits require `Idempotency-Key` outside demo. A repeated key with the same request returns the stored response or `UNKNOWN_OUTCOME` while the first attempt is unresolved; a different request returns `409`. A supplier timeout is not retried automatically when its write idempotency contract is unverified. Use `GET /api/v1/operations/{operationId}` to inspect status. Cancellation returns `202` after its job is stored; status and DLQ state survive a service restart. Search results remain a 10-minute Redis cache; missing IDs return `404`, recently expired IDs return `410`, and Redis failure returns `503`.
 
 ### Security Configuration
 
@@ -386,7 +402,13 @@ Authenticated business requests require a JWT with the configured issuer, audien
 | `GET` | `/api/v1/transfers/bookings/{bookingId}/cancel-status` | Get cancel status |
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/search-changes` | Search booking alternatives |
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/commit-change` | Commit booking change |
-| `GET` | `/api/v1/admin/alerts/dlq` | Get simulated DLQ metric counter status |
+| `GET` | `/api/v1/admin/alerts/dlq` | Get real PostgreSQL DLQ size outside demo |
+| `GET` | `/api/v1/operations/{operationId}` | Get tenant-owned durable operation status outside demo |
+| `GET` | `/api/v1/admin/operations/review` | List ambiguous write operations outside demo |
+| `POST` | `/api/v1/admin/operations/{operationId}/review` | Record a manual review decision and evidence reference |
+| `GET` | `/api/v1/admin/cancellations/dlq` | List real dead letters outside demo |
+| `POST` | `/api/v1/admin/cancellations/dlq/{jobId}/replay` | Replay verified-safe cancellation after operator review |
+| `POST` | `/api/v1/admin/cancellations/dlq/{jobId}/resolve` | Record manual resolution and audit event |
 | `DELETE` | `/api/v1/admin/alerts/dlq` | Demo profile only: clear simulated DLQ metric counter |
 | `GET` | `/api/v1/admin/alerts/errors` | Get error metrics |
 | `POST` | `/api/v1/admin/alerts/dlq/simulate` | Demo profile only: simulate DLQ items |
@@ -529,7 +551,7 @@ curl "http://localhost:8080/api/v1/pricing/eyJzdXAiOiJTVFVCIi.../amenities"
 Book a transfer using an offer ID.
 
 **Headers:**
-- `Idempotency-Key` (optional): Replays a cached booking response for five minutes in the same process; it does not prevent concurrent or cross-replica duplicates
+- `Idempotency-Key`: Required outside demo; atomically claims a seven-day tenant-scoped booking operation
 
 **Request Body:**
 ```json
@@ -635,7 +657,7 @@ Search for alternative offers to change an existing booking.
 Commit a booking change if the supplier supports its native change operation. The current real Mozio adapter does not implement the change port.
 
 **Headers:**
-- `Idempotency-Key` (optional): Accepted by this endpoint but currently ignored by the service
+- `Idempotency-Key`: Required outside demo for a supplier-supported change; conflicting reuse returns `409`
 
 **Request Body:**
 ```json
@@ -683,7 +705,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 
 **Problem:** Storing search context and offer details for every search creates state management complexity and database overhead.
 
-**Current implementation:** HMAC-SHA256 signs Base64url payloads. Offer IDs contain supplier/search/result IDs and issue/expiry timestamps. Booking IDs contain supplier/reservation/confirmation IDs and no expiry. Neither token is encrypted or tenant-bound.
+**Current implementation:** HMAC-SHA256 signs Base64url payloads with a key ID and tenant binding. Offer IDs contain supplier/search/result IDs and issue/expiry timestamps. Booking IDs contain supplier/reservation/confirmation IDs and no expiry. HMAC provides integrity, not confidentiality; neither token is encrypted.
 
 **Benefits:**
 - No database lookup for signature validation
@@ -753,7 +775,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 1. **CancellationQueue**: Async processing with retries
 2. **CancellationWorker**: Processes and immediately requeues failed tasks in its loop; delayed backoff is not implemented here
 3. **CancellationDLQ**: Failed cancellations (after max retries) go to DLQ
-4. **AlertController**: Admin endpoints currently report and clear a separate simulated DLQ counter
+4. **AlertController**: Admin alert reads use the real PostgreSQL DLQ count outside demo; simulator routes exist only in demo
 
 **Benefits:**
 - Non-blocking cancellation requests
@@ -800,7 +822,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 - **Manual alert triggers** — Force an alert check on-demand
 - **Configurable thresholds** — Warning and critical levels for DLQ size and error rates
 
-**Current value:** This demonstrates an alerting flow and optional email notifications for simulated counter thresholds. Role-based access is enforced; linkage to actual cancellation jobs and operational runbooks remain to be built.
+**Current value:** Outside demo, alert thresholds read the PostgreSQL-backed cancellation DLQ. Role-based access is enforced, and operator replay/resolve actions write audit events. Alert delivery and operational runbooks still require deployment validation.
 
 ---
 
@@ -816,7 +838,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | Separation of vendor-specific and domain logic | ✅ |
 | Proper logging and observability | Partial: request IDs and metrics exist; end-to-end traces do not |
 | Distributed tracing support | Not implemented |
-| Horizontal and vertical scalability | Partial: Redis search cache is shared, but idempotency, limits, and cancellation work are process-local |
+| Horizontal and vertical scalability | PostgreSQL coordinates write idempotency and cancellation leases; Redis shares search state and rate counters. The slow mock's local state is demo/test only. |
 | README with build, run, test instructions | ✅ |
 | Example API calls (Postman collection) | ✅ |
 
@@ -828,7 +850,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | **Pricing Endpoint** | Dedicated endpoint for calculating total price with amenities |
 | **Amenities API** | Get available amenities per offer |
 | **Booking Change Workflow** | Search alternatives and commit changes to existing bookings |
-| **Idempotency Support** | Process-local booking response cache; change header is currently ignored |
+| **Idempotency Support** | PostgreSQL atomic claims for booking and supported change commits outside demo; local booking cache in demo |
 | **Multi-Tenancy** | JWT-bound tenant controls supplier filtering, default currency, result limits, and signed IDs |
 | **Circuit Breaker** | Resilience4j integration with per-supplier configuration |
 | **Rate Limiting** | Process-local per-supplier search limiter; poll limiter exists but is not wired to the poll endpoint |

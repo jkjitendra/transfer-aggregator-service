@@ -3,6 +3,13 @@ security:
     enabled: false
   token:
     secret: ${TOKEN_SECRET:demo-only-key-do-not-use-in-production-1234567890}
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  flyway:
+    enabled: false
 
 transfer:
   aggregator:

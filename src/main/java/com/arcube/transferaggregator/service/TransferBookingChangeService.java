@@ -10,9 +10,11 @@ import com.arcube.transferaggregator.dto.*;
 import com.arcube.transferaggregator.dto.SearchResponse.OfferDto;
 import com.arcube.transferaggregator.exception.SupplierNotFoundException;
 import com.arcube.transferaggregator.ports.*;
+import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.List;
@@ -26,6 +28,8 @@ public class TransferBookingChangeService {
     private final BookingIdCodec bookingIdCodec;
     private final OfferIdCodec offerIdCodec;
     private final AggregatorProperties properties;
+    @Autowired(required = false)
+    private DurableWriteCoordinator durableWrites;
 
     /**
      * Step 1: Search for change options using supplier-native change search.
@@ -69,6 +73,10 @@ public class TransferBookingChangeService {
         // Check if supplier supports native reservation changes
         if (supplier instanceof ReservationChangeSupplier changeSupplier 
                 && changeSupplier.supportsReservationChanges()) {
+            if (durableWrites != null) {
+                return durableWrites.change(request, idempotencyKey, supplierCode,
+                    operationId -> commitViaSupplierChangeEndpoint(request, oldBookingPayload, changeSupplier));
+            }
             return commitViaSupplierChangeEndpoint(request, oldBookingPayload, changeSupplier);
         }
 

@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "transfer.aggregator.mode=stub"
 })
 @AutoConfigureMockMvc
-@ActiveProfiles("prod")
+@ActiveProfiles("test")
 class SecurityBoundaryTest {
     @Autowired MockMvc mvc;
     @Autowired TenantConfig tenantConfig;
