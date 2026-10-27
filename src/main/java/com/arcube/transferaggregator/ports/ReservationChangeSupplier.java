@@ -20,7 +20,6 @@ public interface ReservationChangeSupplier {
     /**
      * Step 1: Search for change options.
      * Returns offers from the same provider as the original reservation.
-     * Mozio: POST /v2/search/reservation_changes/
      */
     SupplierReservationChangeSearchResult searchForChange(
         ReservationChangeSearchCommand command, Duration timeout);
@@ -28,7 +27,6 @@ public interface ReservationChangeSupplier {
     /**
      * Step 2: Commit the reservation change.
      * Cancels old reservation and creates new one atomically.
-     * Mozio: POST /v2/reservations/changes/
      */
     SupplierReservationChangeResult changeReservation(
         ReservationChangeCommitCommand command, Duration timeout);

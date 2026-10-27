@@ -8,7 +8,6 @@ import com.arcube.transferaggregator.domain.*;
 import com.arcube.transferaggregator.ports.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -20,7 +19,6 @@ import java.util.UUID;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "transfer.aggregator.mode", havingValue = "stub", matchIfMissing = true)
 public class MockSupplierClient implements TransferSupplier, ReservationChangeSupplier, IdempotentCancellationSupplier {
     
     private static final String SUPPLIER_CODE = "STUB";
@@ -98,7 +96,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
         String searchId = "change-" + UUID.randomUUID().toString().substring(0, 8);
         Instant expiresAt = Instant.now().plusSeconds(20 * 60);
         
-        // Return offers from same provider (simulating Mozio behavior)
+        // Return replacement offers from the same simulated provider.
         List<Offer> offers = List.of(
             createOffer(searchId, "cr1", "Standard Sedan (Changed)", 49.99, expiresAt),
             createOffer(searchId, "cr2", "SUV (Changed)", 69.99, expiresAt)
@@ -134,7 +132,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
         OfferPayload payload = OfferPayload.of(SUPPLIER_CODE, searchId, resultId, expiresAt);
         String offerId = offerIdCodec.encode(payload);
         
-        // Simulate varying distances (Mozio provides distance_meters)
+        // Simulate varying distances for demo offers.
         int distanceMeters = switch (vehicleType) {
             case "Standard Sedan" -> 15200;       // ~15km
             case "SUV" -> 18500;                  // ~18km
@@ -142,7 +140,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
             default -> 16000;
         };
         
-        // Available amenities with prices (Mozio-aligned)
+        // Available amenities with demo prices.
         List<Amenity> availableAmenities = List.of(
             Amenity.available("meet_and_greet", "Meet & Greet", Money.of(30.00, "USD")),
             Amenity.available("baby_seats", "Baby Seats (1-4 years)", Money.of(15.00, "USD")),

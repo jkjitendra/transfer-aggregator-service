@@ -31,7 +31,7 @@ public class SearchFilter {
     private Integer minPassengers;
     private Integer minBags;
 
-    // Amenity filters (Mozio-aligned: can filter by amenities in poll)
+    // Amenity filters for poll responses
     private List<String> requiredAmenities;         // Must have all these
     private List<String> preferredAmenities;        // Nice to have (for sorting)
     private Boolean freeCancellationOnly;           // Only 100% refundable

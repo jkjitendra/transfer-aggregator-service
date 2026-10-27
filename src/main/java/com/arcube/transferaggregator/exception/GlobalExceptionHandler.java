@@ -2,6 +2,8 @@ package com.arcube.transferaggregator.exception;
 
 import com.arcube.transferaggregator.dto.ErrorResponse;
 import com.arcube.transferaggregator.workflow.IdempotencyConflictException;
+import com.arcube.transferaggregator.routing.RouteNotFoundException;
+import com.arcube.transferaggregator.routing.RouteUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
@@ -120,6 +122,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleSearchUnavailable(SearchStateUnavailableException ex) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ErrorResponse.of(
             "SEARCH_STATE_UNAVAILABLE", ex.getMessage(), "RETRY", MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(RouteNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleRouteNotFound(RouteNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(
+            "ROUTE_NOT_FOUND", ex.getMessage(), null, MDC.get("requestId")));
+    }
+
+    @ExceptionHandler(RouteUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleRouteUnavailable(RouteUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ErrorResponse.of(
+            "ROUTE_UNAVAILABLE", ex.getMessage(), "RETRY", MDC.get("requestId")));
     }
 
     @ExceptionHandler(CancellationRequestNotFoundException.class)

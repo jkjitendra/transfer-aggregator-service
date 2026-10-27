@@ -15,7 +15,7 @@ public record Offer(
     Money totalPrice,
     CancellationPolicy cancellation,
     int estimatedDurationMinutes,
-    Integer distanceMeters,        // Mozio: distance_meters
+    Integer distanceMeters,
     boolean flightInfoRequired,
     boolean extraPassengerInfoRequired,
     Instant expiresAt,

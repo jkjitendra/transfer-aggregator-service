@@ -33,7 +33,7 @@ public class TransferController {
     
     /**
      * Poll for search results with optional filtering, sorting, and pagination.
-     * Mozio-aligned: supports amenity filtering via query params.
+     * Supports amenity filtering via query params.
      */
     @GetMapping("/search/{searchId}/poll")
     public ResponseEntity<SearchResponse> poll(
@@ -55,7 +55,7 @@ public class TransferController {
             // Capacity filters
             @RequestParam(required = false) Integer minPassengers,
             @RequestParam(required = false) Integer minBags,
-            // Amenity filters (Mozio-aligned)
+            // Amenity filters
             @RequestParam(required = false) List<String> amenities,
             @RequestParam(required = false) Boolean freeCancellationOnly,
             // Provider filters

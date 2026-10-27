@@ -66,9 +66,9 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
         SearchState state = new SearchState(searchId, Instant.now().plusSeconds(20 * 60));
         searchStates.put(searchId, state);
         
-        // Return 1 offer, incomplete (Mozio-style to start)
+        // Return one initial offer while polling remains incomplete.
         List<Offer> offers = List.of(
-            createMozioStyleOffer(searchId, "mozio-sedan", "Toyota Camry Sedan", 89.99, state.expiresAt,
+            createStandardOffer(searchId, "standard-sedan", "Toyota Camry Sedan", 89.99, state.expiresAt,
                 Map.of(
                     "providerName", "Carzen+",
                     "vehicleMake", "Toyota",
@@ -88,7 +88,7 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
     }
     
     // Called during polling to get additional results.
-    // Each poll returns one new offer alternating between Mozio-style and SkyRide-style vendors.
+    // Each poll adds offers from the simulated providers.
     public SupplierSearchResult poll(String searchId) {
         SearchState state = searchStates.getIfPresent(searchId);
         if (state == null) {
@@ -102,11 +102,11 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
         int pollCount = state.pollCount.incrementAndGet();
         boolean complete = pollCount >= MAX_POLLS;
         
-        // Progressively add offers - alternating between Mozio-style and SkyRide-style
+        // Progressively add offers from the simulated providers.
         List<Offer> offers = new ArrayList<>();
         
-        // Poll 1: Mozio-style Sedan
-        offers.add(createMozioStyleOffer(searchId, "mozio-sedan", "Toyota Camry Sedan", 89.99, state.expiresAt,
+        // Poll 1: Standard sedan
+        offers.add(createStandardOffer(searchId, "standard-sedan", "Toyota Camry Sedan", 89.99, state.expiresAt,
             Map.of(
                 "providerName", "Carzen+",
                 "vehicleMake", "Toyota",
@@ -126,9 +126,9 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
                 )));
         }
         
-        // Poll 3: Add Mozio-style SUV
+        // Poll 3: Add an SUV
         if (pollCount >= 3) {
-            offers.add(createMozioStyleOffer(searchId, "mozio-suv", "Ford Explorer SUV", 149.99, state.expiresAt,
+            offers.add(createStandardOffer(searchId, "standard-suv", "Ford Explorer SUV", 149.99, state.expiresAt,
                 Map.of(
                     "providerName", "Premium Rides",
                     "vehicleMake", "Ford",
@@ -186,8 +186,8 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
         return supplierProperties.getSlowStub().isEnabled(); 
     }
     
-    // Creates a Mozio-style offer with provider details in extras
-    private Offer createMozioStyleOffer(String searchId, String resultId, String vehicleType, 
+    // Creates a simulated offer with provider details in extras.
+    private Offer createStandardOffer(String searchId, String resultId, String vehicleType,
                                          double price, Instant expiresAt, Map<String, Object> extras) {
         OfferPayload payload = OfferPayload.of(SUPPLIER_CODE, searchId, resultId, expiresAt);
         String offerId = offerIdCodec.encode(payload);
@@ -203,8 +203,8 @@ public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
                 .maxBags(vehicleType.contains("SUV") ? 5 : 3)
                 .build())
             .provider(Provider.builder()
-                .name((String) extras.getOrDefault("providerName", "Mozio Partner"))
-                .displayName((String) extras.getOrDefault("providerName", "Mozio Partner"))
+                .name((String) extras.getOrDefault("providerName", "Demo Partner"))
+                .displayName((String) extras.getOrDefault("providerName", "Demo Partner"))
                 .rating(BigDecimal.valueOf(4.8))
                 .ratingCount(1200)
                 .build())

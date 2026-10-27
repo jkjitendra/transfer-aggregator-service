@@ -14,7 +14,6 @@ import java.util.List;
 
 /**
  * REST Controller for pricing operations.
- * Mozio endpoint: /v2/pricing/
  */
 @Slf4j
 @RestController
@@ -37,7 +36,7 @@ public class PricingController {
     }
 
     /**
-     * Get total price with amenities via query params (Mozio GET support).
+     * Get total price with amenities via query params.
      * GET /api/v1/pricing?searchId=xxx&offerId=xxx&amenities=baby_seats&amenities=wifi
      */
     @GetMapping

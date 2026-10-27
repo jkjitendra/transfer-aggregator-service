@@ -38,7 +38,7 @@ public class SearchResponse {
         private Money totalPrice;
         private CancellationPolicy cancellation;
         private int estimatedDurationMinutes;
-        private Integer distanceMeters;        // Mozio: distance_meters
+        private Integer distanceMeters;
         private boolean flightInfoRequired;
         private boolean extraPassengerInfoRequired;
         private Instant expiresAt;

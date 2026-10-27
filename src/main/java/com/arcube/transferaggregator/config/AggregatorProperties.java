@@ -13,8 +13,6 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "transfer.aggregator")
 public class AggregatorProperties {
     
-    private String mode = "stub";
-    
     private int globalTimeoutSeconds = 10;
     
     private Map<String, SupplierProperties> suppliers = new HashMap<>();
@@ -26,10 +24,6 @@ public class AggregatorProperties {
 
     private Map<String, TenantProperties> tenants = new HashMap<>();
 
-    public boolean isStubMode() {
-        return "stub".equalsIgnoreCase(mode);
-    }
-    
     @Data
     public static class SupplierProperties {
         private boolean enabled = true;
@@ -45,6 +39,15 @@ public class AggregatorProperties {
         private int maxConcurrentCalls = 50;
         private int searchRateLimitPerMinute = 80;
         private int pollRateLimitPerMinute = 25;
+        private Map<String, OperationTimeoutProperties> supplierTimeouts = new HashMap<>();
+    }
+
+    @Data
+    public static class OperationTimeoutProperties {
+        private int searchSeconds = 10;
+        private int bookingSeconds = 10;
+        private int changeSeconds = 10;
+        private int cancellationSeconds = 5;
     }
 
     @Data
