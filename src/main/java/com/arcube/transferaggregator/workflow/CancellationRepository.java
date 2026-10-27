@@ -6,7 +6,6 @@ import com.arcube.transferaggregator.observability.StorageTelemetry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,7 +22,7 @@ import java.util.UUID;
 
 /** Durable cancellation queue, lease state, and dead-letter source of truth. */
 @Repository
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class CancellationRepository {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -32,20 +31,21 @@ public class CancellationRepository {
     private final ObjectMapper mapper;
     private final int leaseSeconds;
     private final int operationDays;
-    @Autowired(required = false)
-    private WorkflowMetrics metrics;
-    @Autowired(required = false)
-    private StorageTelemetry storageTelemetry;
+    private final WorkflowMetrics metrics;
+    private final StorageTelemetry storageTelemetry;
 
     public CancellationRepository(JdbcTemplate jdbc, TransactionTemplate transactions, EnvelopeCrypto crypto,
                                   WorkflowRepository workflows, ObjectMapper mapper,
                                   @Value("${workflow.cancellation-lease-seconds:30}") int leaseSeconds,
-                                  @Value("${workflow.operation-retention-days:90}") int operationDays) {
+                                  @Value("${workflow.operation-retention-days:90}") int operationDays,
+                                  WorkflowMetrics metrics, StorageTelemetry storageTelemetry) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.crypto = crypto;
         this.workflows = workflows;
         this.mapper = mapper;
+        this.metrics = metrics;
+        this.storageTelemetry = storageTelemetry;
         if (leaseSeconds < 10 || leaseSeconds > 3600) throw new IllegalStateException("Invalid cancellation lease");
         this.leaseSeconds = leaseSeconds;
         this.operationDays = operationDays;
@@ -112,11 +112,10 @@ public class CancellationRepository {
                 workflows.audit(job.operationId(), job.tenantId(), "system", "CANCELLATION_CLAIMED", job.supplierCode());
                 record("IN_PROGRESS");
             }
-            if (metrics != null) metrics.workerClaim(claimed.size());
+            metrics.workerClaim(claimed.size());
             return claimed;
         });
-        return storageTelemetry == null ? claim.get()
-            : storageTelemetry.observe("postgres", "claim_cancellations", claim);
+        return storageTelemetry.observe("postgres", "claim_cancellations", claim);
     }
 
     public List<Job> expiredLeases() {
@@ -257,7 +256,7 @@ public class CancellationRepository {
     }
 
     private void record(String state) {
-        if (metrics != null) metrics.cancellation(state);
+        metrics.cancellation(state);
     }
 
     private Job mapJob(ResultSet rs, int row) throws SQLException {

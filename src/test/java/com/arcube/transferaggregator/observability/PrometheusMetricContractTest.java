@@ -4,11 +4,11 @@ import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import com.arcube.transferaggregator.resilience.RetryHandler;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,8 +25,7 @@ class PrometheusMetricContractTest {
         workflow.write("BOOKING", "UNKNOWN_OUTCOME", Duration.ofMillis(50));
         workflow.cancellation("DLQ");
         new WorkflowQueueMetrics(mock(JdbcTemplate.class), registry).refresh();
-        RetryHandler retries = new RetryHandler();
-        ReflectionTestUtils.setField(retries, "meters", registry);
+        RetryHandler retries = new RetryHandler(Optional.of(registry));
         AtomicInteger calls = new AtomicInteger();
         retries.executeReadWithinDeadline(() -> {
             if (calls.incrementAndGet() == 1) throw new IllegalStateException("timeout");

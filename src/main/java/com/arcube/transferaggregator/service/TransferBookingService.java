@@ -14,7 +14,6 @@ import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import com.github.benmanes.caffeine.cache.Cache;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,12 +23,12 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** Orchestrates booking operations */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransferBookingService {
     
     private final SupplierRegistry supplierRegistry;
@@ -37,8 +36,27 @@ public class TransferBookingService {
     private final BookingIdCodec bookingIdCodec;
     private final AggregatorProperties properties;
     private final Cache<String, BookResponse> idempotencyCache;
-    @Autowired(required = false)
-    private DurableWriteCoordinator durableWrites;
+    private final DurableWriteCoordinator durableWrites;
+
+    @Autowired
+    public TransferBookingService(SupplierRegistry supplierRegistry, OfferIdCodec offerIdCodec,
+                                  BookingIdCodec bookingIdCodec, AggregatorProperties properties,
+                                  Cache<String, BookResponse> idempotencyCache,
+                                  Optional<DurableWriteCoordinator> durableWrites) {
+        this.supplierRegistry = supplierRegistry;
+        this.offerIdCodec = offerIdCodec;
+        this.bookingIdCodec = bookingIdCodec;
+        this.properties = properties;
+        this.idempotencyCache = idempotencyCache;
+        this.durableWrites = durableWrites.orElse(null);
+    }
+
+    TransferBookingService(SupplierRegistry supplierRegistry, OfferIdCodec offerIdCodec,
+                           BookingIdCodec bookingIdCodec, AggregatorProperties properties,
+                           Cache<String, BookResponse> idempotencyCache) {
+        this(supplierRegistry, offerIdCodec, bookingIdCodec, properties, idempotencyCache,
+            Optional.empty());
+    }
     
     public BookResponse book(BookRequest request, String idempotencyKey) {
         OfferPayload offerPayload = offerIdCodec.decode(request.getOfferId());

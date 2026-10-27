@@ -10,17 +10,7 @@ import com.arcube.transferaggregator.config.AggregatorProperties.TenantPropertie
 /**
  * Multi-tenant configuration for filtering suppliers per tenant.
  * 
- * Configuration in application.yml:
- * aggregator:
- *   tenants:
- *     tenant-a:
- *       name: "Travel Partner A"
- *       enabled-suppliers: [STUB, SKYRIDE]
- *       default-currency: USD
- *     tenant-b:
- *       name: "Travel Partner B"
- *       enabled-suppliers: [SKYRIDE, SLOW_STUB]
- *       default-currency: EUR
+ * Tenants are configured under transfer.aggregator.tenants in the active profile.
  */
 @Component
 @RequiredArgsConstructor

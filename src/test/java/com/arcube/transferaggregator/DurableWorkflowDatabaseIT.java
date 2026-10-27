@@ -7,8 +7,12 @@ import com.arcube.transferaggregator.workflow.WorkflowRepository;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import com.arcube.transferaggregator.workflow.DurableCancellationWorkflow;
 import com.arcube.transferaggregator.observability.WorkflowQueueMetrics;
+import com.arcube.transferaggregator.observability.WorkflowMetrics;
+import com.arcube.transferaggregator.observability.StorageTelemetry;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import com.arcube.transferaggregator.config.TenantContext;
+import com.arcube.transferaggregator.config.AggregatorProperties;
 import com.arcube.transferaggregator.adapters.idcodec.BookingPayload;
 import com.arcube.transferaggregator.dto.BookRequest;
 import com.arcube.transferaggregator.dto.BookResponse;
@@ -23,7 +27,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.annotation.DirtiesContext;
@@ -64,8 +68,10 @@ class DurableWorkflowDatabaseIT {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> System.getenv("TRANSFER_TEST_POSTGRES_URL"));
-        registry.add("spring.datasource.username", () -> "transfer_test");
-        registry.add("spring.datasource.password", () -> "");
+        registry.add("spring.datasource.username", () -> System.getenv().getOrDefault("TRANSFER_TEST_POSTGRES_USER", "transfer_test"));
+        registry.add("spring.datasource.password", () -> System.getenv().getOrDefault("TRANSFER_TEST_POSTGRES_PASSWORD", ""));
+        registry.add("spring.data.redis.host", () -> System.getenv().getOrDefault("TRANSFER_TEST_REDIS_HOST", "localhost"));
+        registry.add("spring.data.redis.password", () -> System.getenv().getOrDefault("TRANSFER_TEST_REDIS_PASSWORD", ""));
     }
 
     @Autowired WorkflowRepository workflows;
@@ -77,7 +83,7 @@ class DurableWorkflowDatabaseIT {
     @Autowired DurableWriteCoordinator coordinator;
     @Autowired WorkflowQueueMetrics queueMetrics;
     @Autowired MeterRegistry meters;
-    @MockBean JwtDecoder decoder;
+    @MockitoBean JwtDecoder decoder;
 
     @Test
     @Order(1)
@@ -125,7 +131,8 @@ class DurableWorkflowDatabaseIT {
         String bookingId = "booking-" + UUID.randomUUID();
         CancellationRepository.Job created = cancellations.request("tenant-a", bookingId, "STUB", "sensitive-reservation");
         CancellationRepository secondReplica = new CancellationRepository(
-            jdbc, transactions, crypto, workflows, mapper, 30, 90);
+            jdbc, transactions, crypto, workflows, mapper, 30, 90,
+            new WorkflowMetrics(meters), new StorageTelemetry(ObservationRegistry.NOOP));
         assertThat(secondReplica.find("tenant-a", WorkflowRepository.sha256(bookingId))).isPresent();
         assertThat(secondReplica.find("tenant-b", WorkflowRepository.sha256(bookingId))).isEmpty();
         assertThat(new String(created.reservationCiphertext())).doesNotContain("sensitive-reservation");
@@ -193,7 +200,8 @@ class DurableWorkflowDatabaseIT {
             assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
             return SupplierCancelResult.success("SAFE", command.reservationId(), null);
         });
-        DurableCancellationWorkflow workflow = new DurableCancellationWorkflow(cancellations, registry, 3);
+        DurableCancellationWorkflow workflow = new DurableCancellationWorkflow(cancellations, registry, 3,
+            new AggregatorProperties(), ObservationRegistry.NOOP, 30);
         String bookingId = "booking-" + UUID.randomUUID();
         String secondBookingId = "booking-" + UUID.randomUUID();
         TenantContext.setTenantId("tenant-a");

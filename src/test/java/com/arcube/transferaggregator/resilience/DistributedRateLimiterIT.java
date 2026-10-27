@@ -9,9 +9,9 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,7 +24,10 @@ class DistributedRateLimiterIT {
     @Test
     void twoInstancesEnforceOneTenantSupplierBudget() {
         LettuceConnectionFactory factory = new LettuceConnectionFactory(
-            System.getenv("TRANSFER_TEST_REDIS_HOST"), 6379);
+            System.getenv("TRANSFER_TEST_REDIS_HOST"),
+            Integer.parseInt(System.getenv().getOrDefault("TRANSFER_TEST_REDIS_PORT", "6379")));
+        String password = System.getenv("TRANSFER_TEST_REDIS_PASSWORD");
+        if (password != null && !password.isBlank()) factory.setPassword(password);
         factory.afterPropertiesSet();
         try {
             StringRedisTemplate redis = new StringRedisTemplate(factory);
@@ -52,9 +55,6 @@ class DistributedRateLimiterIT {
 
     private RateLimiter limiter(AggregatorProperties properties, StringRedisTemplate redis,
                                 Environment environment) {
-        RateLimiter limiter = new RateLimiter(properties);
-        ReflectionTestUtils.setField(limiter, "redis", redis);
-        ReflectionTestUtils.setField(limiter, "environment", environment);
-        return limiter;
+        return new RateLimiter(properties, Optional.of(redis), environment, Optional.empty());
     }
 }

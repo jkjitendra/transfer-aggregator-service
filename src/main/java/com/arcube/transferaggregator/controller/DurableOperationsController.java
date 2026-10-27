@@ -21,7 +21,7 @@ import java.util.UUID;
 
 /** Tenant-scoped operation status and operator review APIs backed by PostgreSQL. */
 @RestController
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class DurableOperationsController {
     private final WorkflowRepository operations;
     private final DurableCancellationWorkflow cancellations;

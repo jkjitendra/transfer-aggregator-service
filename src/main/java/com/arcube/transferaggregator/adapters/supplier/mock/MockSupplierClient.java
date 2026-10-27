@@ -132,7 +132,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
         OfferPayload payload = OfferPayload.of(SUPPLIER_CODE, searchId, resultId, expiresAt);
         String offerId = offerIdCodec.encode(payload);
         
-        // Simulate varying distances for demo offers.
+        // Simulate varying distances for local offers.
         int distanceMeters = switch (vehicleType) {
             case "Standard Sedan" -> 15200;       // ~15km
             case "SUV" -> 18500;                  // ~18km
@@ -140,7 +140,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
             default -> 16000;
         };
         
-        // Available amenities with demo prices.
+        // Available amenities with local prices.
         List<Amenity> availableAmenities = List.of(
             Amenity.available("meet_and_greet", "Meet & Greet", Money.of(30.00, "USD")),
             Amenity.available("baby_seats", "Baby Seats (1-4 years)", Money.of(15.00, "USD")),

@@ -12,7 +12,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -23,18 +22,19 @@ import java.time.Duration;
 
 /** Claims a write before contacting a supplier, then records its verified or ambiguous outcome. */
 @Service
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class DurableWriteCoordinator {
     private final WorkflowRepository repository;
     private final ObjectMapper mapper;
-    @Autowired(required = false)
-    private WorkflowMetrics metrics;
-    @Autowired(required = false)
-    private ObservationRegistry observations;
+    private final WorkflowMetrics metrics;
+    private final ObservationRegistry observations;
 
-    public DurableWriteCoordinator(WorkflowRepository repository, ObjectMapper mapper) {
+    public DurableWriteCoordinator(WorkflowRepository repository, ObjectMapper mapper,
+                                   WorkflowMetrics metrics, ObservationRegistry observations) {
         this.repository = repository;
         this.mapper = mapper;
+        this.metrics = metrics;
+        this.observations = observations;
     }
 
     public BookResponse book(BookRequest request, String clientKey, String supplier, Function<String, BookResponse> supplierCall) {
@@ -101,7 +101,6 @@ public class DurableWriteCoordinator {
         String previous = MDC.get("operationId");
         MDC.put("operationId", operationId);
         try {
-            if (observations == null) return call.get();
             return Observation.createNotStarted("transfer.workflow.supplier", observations)
                 .lowCardinalityKeyValue("kind", kind).lowCardinalityKeyValue("supplier", supplier)
                 .highCardinalityKeyValue("operation.id", operationId).observe(call::get);
@@ -112,7 +111,7 @@ public class DurableWriteCoordinator {
     }
 
     private void recordWrite(String kind, String state, long started) {
-        if (metrics != null) metrics.write(kind, state,
+        metrics.write(kind, state,
             Duration.ofNanos(Math.max(0, System.nanoTime() - started)));
     }
 

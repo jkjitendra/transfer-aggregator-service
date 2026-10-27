@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transfer-config
+data:
+  SPRING_PROFILES_ACTIVE: prod
+  SPRING_FLYWAY_ENABLED: "false"
+  ROUTING_ENABLED: "false"
+  DATABASE_POOL_SIZE: "10"
+  TRACE_SAMPLE_PROBABILITY: "0.1"
