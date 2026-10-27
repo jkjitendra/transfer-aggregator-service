@@ -11,10 +11,12 @@ import com.arcube.transferaggregator.exception.SupplierNotFoundException;
 import com.arcube.transferaggregator.ports.SupplierBookingResult;
 import com.arcube.transferaggregator.ports.SupplierRegistry;
 import com.arcube.transferaggregator.ports.TransferSupplier;
+import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,9 +36,15 @@ public class TransferBookingService {
     private final BookingIdCodec bookingIdCodec;
     private final AggregatorProperties properties;
     private final Cache<String, BookResponse> idempotencyCache;
+    @Autowired(required = false)
+    private DurableWriteCoordinator durableWrites;
     
     public BookResponse book(BookRequest request, String idempotencyKey) {
         OfferPayload offerPayload = offerIdCodec.decode(request.getOfferId());
+        if (durableWrites != null) {
+            return durableWrites.book(request, idempotencyKey, offerPayload.supplierCode(),
+                operationId -> invokeSupplier(request, offerPayload, operationId));
+        }
         String tenantId = TenantContext.getTenantIdOrDefault("default");
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             idempotencyKey = generateIdempotencyKey(request);
@@ -49,23 +57,23 @@ public class TransferBookingService {
             return cached;
         }
         
-        log.info("Booking: supplier={}, searchId={}", offerPayload.supplierCode(), offerPayload.searchId());
+        BookResponse response = invokeSupplier(request, offerPayload, idempotencyKey);
         
-        TransferSupplier supplier = supplierRegistry.getSupplier(offerPayload.supplierCode())
-            .orElseThrow(() -> new SupplierNotFoundException(offerPayload.supplierCode()));
-        
-        BookCommand command = mapToCommand(request, offerPayload, idempotencyKey);
-        Duration timeout = Duration.ofSeconds(properties.getGlobalTimeoutSeconds());
-        SupplierBookingResult result = supplier.book(command, timeout);
-        
-        BookResponse response = mapToResponse(result, offerPayload.supplierCode());
-        
-        if (result.status() != BookingStatus.PENDING) {
+        if (response.getStatus() != BookingStatus.PENDING) {
             idempotencyCache.put(scopedCacheKey, response);
         }
         
-        log.info("Booking result: status={}", result.status());
+        log.info("Booking result: status={}", response.getStatus());
         return response;
+    }
+
+    private BookResponse invokeSupplier(BookRequest request, OfferPayload offerPayload, String trackingId) {
+        TransferSupplier supplier = supplierRegistry.getSupplier(offerPayload.supplierCode())
+            .orElseThrow(() -> new SupplierNotFoundException(offerPayload.supplierCode()));
+        BookCommand command = mapToCommand(request, offerPayload, trackingId);
+        SupplierBookingResult result = supplier.book(command,
+            Duration.ofSeconds(properties.getGlobalTimeoutSeconds()));
+        return mapToResponse(result, offerPayload.supplierCode());
     }
     
     private BookCommand mapToCommand(BookRequest req, OfferPayload offer, String trackingId) {

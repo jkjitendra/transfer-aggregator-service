@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class BookResponse {
+    private String operationId;
     private String bookingId;
     private BookingStatus status;
     private String confirmationNumber;
@@ -66,6 +67,15 @@ public class BookResponse {
             .errorCode("PRICE_CHANGED")
             .errorMessage("Price changed; please re-search")
             .suggestedAction("RE_SEARCH")
+            .build();
+    }
+
+    public static BookResponse unknownOutcome(String operationId) {
+        return BookResponse.builder().operationId(operationId)
+            .status(BookingStatus.UNKNOWN_OUTCOME)
+            .errorCode("UNKNOWN_OUTCOME")
+            .errorMessage("Supplier outcome is being reviewed; do not retry with a new key")
+            .suggestedAction("CHECK_OPERATION_STATUS")
             .build();
     }
 }

@@ -9,6 +9,14 @@ server:
 spring:
   application:
     name: transfer-aggregator
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/transfer_aggregator}
+    username: ${DATABASE_USER:transfer_aggregator}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  flyway:
+    enabled: true
   
   # Enable Virtual Threads (Java 21+)
   threads:
@@ -156,6 +164,13 @@ security:
     secret: ${TOKEN_SECRET:}
     active-key-id: ${TOKEN_ACTIVE_KEY_ID:v1}
     previous-keys: {}
+
+workflow:
+  encryption-key: ${WORKFLOW_ENCRYPTION_KEY:}
+  idempotency-retention-days: ${IDEMPOTENCY_RETENTION_DAYS:7}
+  operation-retention-days: ${OPERATION_RETENTION_DAYS:90}
+  cancellation-max-attempts: ${CANCELLATION_MAX_ATTEMPTS:3}
+  cancellation-lease-seconds: ${CANCELLATION_LEASE_SECONDS:30}
 
 # ============================================
 # Resilience4j Circuit Breaker Configuration

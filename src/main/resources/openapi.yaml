@@ -8,7 +8,7 @@ info:
     - Search across multiple suppliers in parallel
     - Unified booking interface
     - Signed, stateless tokens for offers and bookings
-    - Process-local, five-minute booking response cache for repeated Idempotency-Key values
+    - PostgreSQL-backed idempotency and operation status for authenticated write requests
 
     ## Authentication
     Business and admin requests require an OIDC bearer JWT with the configured issuer and audience.
@@ -18,8 +18,8 @@ info:
     can read admin alerts; only operator can trigger checks. Simulation routes exist only in the demo profile.
 
     ## Rate Limits
-    - Search: 80 permits/minute per supplier, per service instance
-    - Poll: configured at 25 requests/minute per search ID, but not enforced by the current poll handler
+    - Search: 80 permits/minute per supplier; Redis-backed across replicas outside demo
+    - Poll: 25 requests/minute per search ID; Redis-backed across replicas outside demo
     - Booking: no dedicated request rate limit
   version: 1.0.0
   contact:
@@ -109,7 +109,7 @@ paths:
         Poll search results for a given searchId.
         Supports filtering/sorting/pagination via query params (Mozio-aligned).
         Incomplete aggregate search state is stored in Redis for 10 minutes.
-        An unknown or expired searchId currently returns HTTP 200 with an empty result.
+        Unknown IDs return 404; recently expired IDs return 410. Redis failure returns 503.
       operationId: pollSearch
       parameters:
         - name: X-Request-Id
@@ -258,6 +258,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Search ID not found
+        '410':
+          description: Search results expired
         '503':
           description: Service temporarily unavailable
           content:
@@ -272,8 +276,10 @@ paths:
       summary: Book a transfer
       description: |
         Books a transfer using an offer ID from a previous search.
-        A repeated Idempotency-Key can replay a response cached for five minutes in this process.
-        The cache is neither durable nor atomic and does not guarantee duplicate prevention.
+        Authenticated deployments require Idempotency-Key. PostgreSQL atomically claims the
+        tenant, operation type, and key for seven days. Reuse with a different request is 409.
+        A crash or ambiguous supplier result is UNKNOWN_OUTCOME and requires review.
+        The demo profile retains a local response cache.
       operationId: book
       parameters:
         - name: X-Request-Id
@@ -284,8 +290,8 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
-          description: Optional key for the process-local booking response cache; concurrent or cross-replica requests can still duplicate a booking.
-          required: false
+          description: Required outside demo; unique per intended booking request.
+          required: true
           schema:
             type: string
       requestBody:
@@ -307,11 +313,23 @@ paths:
                 flightNumber: "123"
       responses:
         '200':
-          description: Booking result, including CONFIRMED, PENDING, FAILED, or PRICE_CHANGED in the response body
+          description: Terminal booking result
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BookResponse'
+        '202':
+          description: Pending or unknown supplier outcome; inspect operationId before retrying
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookResponse'
+        '409':
+          description: Idempotency-Key reused with a different request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '400':
           description: Invalid request or missing required fields
           content:
@@ -336,7 +354,7 @@ paths:
       tags:
         - Transfers
       summary: Cancel a booking
-      description: Attempts cancellation synchronously. Failures and timeouts are queued in memory for retry; queued work does not survive restart.
+      description: Outside demo, persists a cancellation job before returning 202. A leased worker processes it; ambiguous outcomes without verified safe retry enter manual review. Demo retains the local queue.
       operationId: cancel
       parameters:
         - name: X-Request-Id
@@ -353,7 +371,13 @@ paths:
             type: string
       responses:
         '200':
-          description: Cancellation result, including CANCELLED or PENDING in the response body
+          description: Terminal cancellation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+        '202':
+          description: Cancellation accepted for durable processing
           content:
             application/json:
               schema:
@@ -382,7 +406,7 @@ paths:
       tags:
         - Transfers
       summary: Get cancellation status
-      description: Returns process-local pending or DLQ state. Otherwise returns status UNKNOWN, which can also mean a cancellation completed successfully.
+      description: Outside demo, returns durable pending, succeeded, DLQ, unknown-outcome, or resolved state. Demo uses the local queue.
       operationId: getCancelStatus
       parameters:
         - name: X-Request-Id
@@ -402,6 +426,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CancelResponse'
+        '404':
+          description: No cancellation request exists for this booking and tenant
 
   /api/v1/pricing:
     post:
@@ -613,7 +639,7 @@ paths:
       tags:
         - BookingChanges
       summary: Commit a supplier-supported booking change
-      description: Only adapters implementing ReservationChangeSupplier can commit. The Idempotency-Key header is currently ignored.
+      description: Only adapters implementing ReservationChangeSupplier can commit. Authenticated deployments require an atomic PostgreSQL Idempotency-Key claim; ambiguous outcomes are held for review.
       operationId: commitBookingChange
       parameters:
         - name: X-Request-Id
@@ -623,8 +649,8 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
-          description: Accepted but not applied by the current booking-change service.
-          required: false
+          description: Required outside demo for a supplier-supported change.
+          required: true
           schema:
             type: string
         - name: bookingId
@@ -640,11 +666,19 @@ paths:
               $ref: '#/components/schemas/BookingChangeCommitRequest'
       responses:
         '200':
-          description: Change result, including SUCCESS, PENDING, or FAILED in the response body
+          description: Terminal change result
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BookingChangeResponse'
+        '202':
+          description: Pending or unknown supplier outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingChangeResponse'
+        '409':
+          description: Idempotency-Key reused with a different change request
         '400':
           description: Invalid bookingId or invalid request body
           content:
@@ -664,12 +698,139 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/operations/{operationId}:
+    get:
+      tags: [Transfers]
+      summary: Get a tenant-owned durable operation status
+      description: Available outside demo for booking, change, and cancellation operations. Does not expose stored passenger data.
+      operationId: getOperationStatus
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current durable operation state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationView'
+        '404':
+          description: Operation not found for this tenant
+
+  /api/v1/admin/operations/review:
+    get:
+      tags: [AdminAlerts]
+      summary: List ambiguous operations requiring review
+      operationId: listOperationsForReview
+      responses:
+        '200':
+          description: Sanitized operation list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperationView'
+
+  /api/v1/admin/operations/{operationId}/review:
+    post:
+      tags: [AdminAlerts]
+      summary: Record an evidence-backed manual review decision
+      description: Operator role required. Only FAILED or MANUAL_REVIEW decisions are accepted; confirmed bookings require supplier verification before a later reconciliation workflow can mark success.
+      operationId: reviewOperation
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminActionRequest'
+      responses:
+        '200':
+          description: Decision recorded with an audit event
+        '409':
+          description: Operation is not reviewable
+
+  /api/v1/admin/cancellations/dlq:
+    get:
+      tags: [AdminAlerts]
+      summary: List real cancellation dead letters
+      description: Support or operator role required; returns sanitized PostgreSQL-backed records.
+      operationId: listCancellationDeadLetters
+      responses:
+        '200':
+          description: Active dead letters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeadLetterView'
+
+  /api/v1/admin/cancellations/dlq/{jobId}/replay:
+    post:
+      tags: [AdminAlerts]
+      summary: Replay a dead letter only when supplier cancellation retry is verified safe
+      operationId: replayCancellationDeadLetter
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminActionRequest'
+      responses:
+        '202':
+          description: Replay scheduled and audited
+        '409':
+          description: Dead letter is not replayable
+
+  /api/v1/admin/cancellations/dlq/{jobId}/resolve:
+    post:
+      tags: [AdminAlerts]
+      summary: Mark a dead letter or unknown cancellation outcome reviewed
+      operationId: resolveCancellationDeadLetter
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminActionRequest'
+      responses:
+        '200':
+          description: Resolution recorded and audited
+        '409':
+          description: Job is not resolvable
+
   /api/v1/admin/alerts/dlq:
     get:
       tags:
         - AdminAlerts
-      summary: Get simulated DLQ counter status
-      description: SUPPORT or OPERATOR. Reads ErrorMetrics counters, not the CancellationDLQ item store.
+      summary: Get cancellation DLQ size and alert threshold status
+      description: SUPPORT or OPERATOR. Reads PostgreSQL dead letters outside demo; reads a simulated counter in demo.
       operationId: getDlqStatus
       responses:
         '200':
@@ -750,6 +911,65 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    OperationView:
+      type: object
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+        kind:
+          type: string
+          enum: [BOOKING, CHANGE, CANCELLATION]
+        state:
+          type: string
+          enum: [IN_PROGRESS, CONFIRMED, FAILED, UNKNOWN_OUTCOME, MANUAL_REVIEW, REQUESTED, RETRY_SCHEDULED, SUCCEEDED, DLQ, RESOLVED]
+        supplierCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    DeadLetterView:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        operationId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+        supplierCode:
+          type: string
+        attempts:
+          type: integer
+        reasonCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        replayCount:
+          type: integer
+
+    AdminActionRequest:
+      type: object
+      required: [evidenceReference]
+      properties:
+        evidenceReference:
+          type: string
+          description: External support or supplier ticket reference; do not place customer data here.
+          minLength: 4
+          maxLength: 128
+        decision:
+          type: string
+          enum: [FAILED, MANUAL_REVIEW]
+
     SearchRequest:
       type: object
       required:
@@ -1018,12 +1238,15 @@ components:
     BookResponse:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         bookingId:
           type: string
           description: Signed booking ID
         status:
           type: string
-          enum: [PENDING, CONFIRMED, FAILED, CANCELLED, PRICE_CHANGED]
+          enum: [PENDING, CONFIRMED, FAILED, CANCELLED, PRICE_CHANGED, UNKNOWN_OUTCOME]
         confirmationNumber:
           type: string
         totalPrice:
@@ -1050,11 +1273,14 @@ components:
     CancelResponse:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         bookingId:
           type: string
         status:
           type: string
-          enum: [PENDING, FAILED, CANCELLED, UNKNOWN]
+          enum: [PENDING, FAILED, CANCELLED, UNKNOWN, UNKNOWN_OUTCOME, RESOLVED]
         refundAmount:
           $ref: '#/components/schemas/Money'
         refundedAt:
@@ -1185,13 +1411,16 @@ components:
     BookingChangeResponse:
       type: object
       properties:
+        operationId:
+          type: string
+          format: uuid
         oldBookingId:
           type: string
         newBookingId:
           type: string
         status:
           type: string
-          enum: [SUCCESS, PENDING, FAILED]
+          enum: [SUCCESS, PENDING, FAILED, UNKNOWN_OUTCOME]
         newConfirmationNumber:
           type: string
         errorCode:
@@ -1201,7 +1430,7 @@ components:
 
     AlertStatus:
       type: object
-      description: Status of the simulated ErrorMetrics DLQ counter, not the cancellation DLQ
+      description: PostgreSQL cancellation DLQ size outside demo; simulated ErrorMetrics counter in demo
       properties:
         level:
           type: string

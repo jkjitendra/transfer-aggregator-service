@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -28,9 +29,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 // Returns results progressively over 3 calls (initial + 2 polls).
 @Slf4j
 @Component
+@Profile("demo | test")
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "transfer.aggregator.suppliers.slow-stub.enabled", havingValue = "true")
-public class SlowMockSupplierClient implements TransferSupplier {
+public class SlowMockSupplierClient implements IdempotentCancellationSupplier {
     
     private static final String SUPPLIER_CODE = "SLOW_STUB";
     private static final String SUPPLIER_NAME = "Slow Mock (Polling Demo)";
