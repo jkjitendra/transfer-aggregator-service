@@ -32,8 +32,7 @@ public class PricingController {
     public ResponseEntity<PricingResponse> calculatePrice(
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @Valid @RequestBody PricingRequest request) {
-        log.info("Calculate price: offerId={}, amenities={}", 
-            request.getOfferId(), request.getAmenities());
+        log.info("Price calculation requested");
         return ResponseEntity.ok(pricingService.calculatePrice(request));
     }
 
@@ -47,7 +46,7 @@ public class PricingController {
             @RequestParam String searchId,
             @RequestParam String offerId,
             @RequestParam(required = false) List<String> amenities) {
-        log.info("Get price: searchId={}, offerId={}, amenities={}", searchId, offerId, amenities);
+        log.info("Price lookup requested");
         
         PricingRequest request = PricingRequest.builder()
             .searchId(searchId)
@@ -66,7 +65,7 @@ public class PricingController {
     public ResponseEntity<List<AmenityInfo>> getAvailableAmenities(
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @PathVariable String offerId) {
-        log.info("Get available amenities: offerId={}", offerId);
+        log.info("Available amenities requested");
         return ResponseEntity.ok(pricingService.getAvailableAmenities(offerId));
     }
 }

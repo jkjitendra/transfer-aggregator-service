@@ -37,7 +37,9 @@ class TransferBookingServiceTest {
         Cache<String, BookResponse> cache = Caffeine.newBuilder().build();
 
         BookResponse cached = BookResponse.pending("b1");
-        cache.put("key-1", cached);
+        cache.put("default:key-1", cached);
+        when(offerIdCodec.decode("offer")).thenReturn(
+            OfferPayload.of("STUB", "search-1", "result-1", Instant.now().plusSeconds(600)));
 
         TransferBookingService service = new TransferBookingService(
             registry, offerIdCodec, bookingIdCodec, props, cache);
@@ -56,7 +58,8 @@ class TransferBookingServiceTest {
         BookResponse response = service.book(request, "key-1");
 
         assertThat(response).isSameAs(cached);
-        verifyNoInteractions(registry, offerIdCodec, bookingIdCodec);
+        verify(offerIdCodec).decode("offer");
+        verifyNoInteractions(registry, bookingIdCodec);
     }
 
     @Test

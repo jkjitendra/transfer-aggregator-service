@@ -11,10 +11,11 @@ info:
     - Process-local, five-minute booking response cache for repeated Idempotency-Key values
 
     ## Authentication
-    The current implementation does not authenticate API callers or authorize admin operations.
-    X-Tenant-Id is currently a caller-controlled header. Unknown tenant IDs fall back to an
-    unrestricted default, and configured tenant enabled/currency/result-limit fields are not enforced.
-    Do not expose this API to production traffic.
+    Business and admin requests require an OIDC bearer JWT with the configured issuer and audience.
+    The roles claim supports CUSTOMER, SUPPORT, and OPERATOR. Business requests also require an
+    enabled tenant claim. X-Tenant-Id is optional and must match the JWT tenant when supplied.
+    Customer and operator roles can write business requests; support can read. Support and operator
+    can read admin alerts; only operator can trigger checks. Simulation routes exist only in the demo profile.
 
     ## Rate Limits
     - Search: 80 permits/minute per supplier, per service instance
@@ -27,7 +28,10 @@ info:
 
 servers:
   - url: http://localhost:8080
-    description: Local development server
+    description: Local server (demo profile or authenticated configuration)
+
+security:
+  - bearerAuth: []
 
 tags:
   - name: Transfers
@@ -665,7 +669,7 @@ paths:
       tags:
         - AdminAlerts
       summary: Get simulated DLQ counter status
-      description: Reads ErrorMetrics counters, not the CancellationDLQ item store. This route has no authentication in the current implementation.
+      description: SUPPORT or OPERATOR. Reads ErrorMetrics counters, not the CancellationDLQ item store.
       operationId: getDlqStatus
       responses:
         '200':
@@ -678,7 +682,7 @@ paths:
       tags:
         - AdminAlerts
       summary: Clear simulated DLQ counter
-      description: Resets the ErrorMetrics counter only; cancellation DLQ items are not removed. This route has no authentication in the current implementation.
+      description: Demo profile only. Resets the ErrorMetrics counter; cancellation DLQ items are not removed.
       operationId: clearDlq
       responses:
         '200':
@@ -707,7 +711,7 @@ paths:
       tags:
         - AdminAlerts
       summary: Simulate adding items to DLQ
-      description: Increments a simulated metric counter; it does not create CancellationDLQ items. This route has no authentication in the current implementation.
+      description: Demo profile only. Increments a simulated metric counter; it does not create CancellationDLQ items.
       operationId: simulateDlqItems
       parameters:
         - name: count
@@ -740,6 +744,11 @@ paths:
                 $ref: '#/components/schemas/TriggerCheckResponse'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     SearchRequest:
       type: object

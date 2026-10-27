@@ -37,7 +37,7 @@ public class SearchRequest {
     private int numBags = 0;
     
     @Size(max = 3, message = "Currency code must be 3 characters or less")
-    private String currency = "USD";
+    private String currency;
     
     private TransferModeDto mode = TransferModeDto.ONE_WAY;
     

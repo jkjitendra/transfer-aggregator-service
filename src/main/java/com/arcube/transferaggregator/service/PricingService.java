@@ -2,6 +2,8 @@ package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.adapters.idcodec.OfferIdCodec;
 import com.arcube.transferaggregator.adapters.idcodec.OfferPayload;
+import com.arcube.transferaggregator.config.TenantContext;
+import com.arcube.transferaggregator.exception.TenantAccessException;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Money;
 import com.arcube.transferaggregator.domain.Offer;
@@ -53,7 +55,7 @@ public class PricingService {
         // Get cached search state to find the offer
         OfferDto offer = findOfferFromCache(searchId, request.getOfferId());
         if (offer == null) {
-            log.warn("Offer not found in cache: searchId={}, offerId={}", searchId, request.getOfferId());
+            log.warn("Offer not found in cache for searchId={}", searchId);
             return PricingResponse.builder()
                 .offerId(request.getOfferId())
                 .build();
@@ -116,6 +118,7 @@ public class PricingService {
      * Get available amenities for an offer.
      */
     public List<AmenityInfo> getAvailableAmenities(String offerId) {
+        offerIdCodec.decode(offerId);
         // Return all known amenities with their pricing
         // In production, this would query the supplier or use cached amenity data
         return List.of(
@@ -150,6 +153,10 @@ public class PricingService {
 
         try {
             SearchStateDto state = objectMapper.readValue(json, SearchStateDto.class);
+            String tenantId = TenantContext.getTenantId();
+            if (tenantId != null && !tenantId.equals(state.getTenantId())) {
+                throw new TenantAccessException();
+            }
             return state.getOffers().stream()
                 .filter(o -> offerId.equals(o.getOfferId()))
                 .findFirst()

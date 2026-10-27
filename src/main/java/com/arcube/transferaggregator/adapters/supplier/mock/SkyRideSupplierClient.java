@@ -93,7 +93,7 @@ public class SkyRideSupplierClient implements TransferSupplier {
     
     @Override
     public SupplierCancelResult cancel(CancelCommand command) {
-        log.info("SKYRIDE: Cancelling {}", command.reservationId());
+        log.info("SKYRIDE: Cancelling reservation");
         sleep(200);
         log.info("SKYRIDE: Cancelled");
         return SupplierCancelResult.success(SUPPLIER_CODE, command.reservationId(), Money.of(55.99, "USD"));

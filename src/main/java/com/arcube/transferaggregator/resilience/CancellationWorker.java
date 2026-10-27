@@ -37,7 +37,7 @@ public class CancellationWorker {
             try {
                 processTask(task);
             } catch (Exception e) {
-                log.error("Error processing cancellation task: {}", task.bookingId(), e);
+                log.error("Error processing cancellation task", e);
                 handleFailure(task, e.getMessage());
             }
         }
@@ -51,7 +51,7 @@ public class CancellationWorker {
     private void processTask(CancellationTask task) {
         // Check if task is expired
         if (task.isExpired()) {
-            log.warn("Cancellation task expired: bookingId={}", task.bookingId());
+            log.warn("Cancellation task expired");
             dlq.add(task.withRetry("Task expired after 1 hour"));
             queue.complete(task.bookingId());
             return;
@@ -80,8 +80,7 @@ public class CancellationWorker {
             SupplierCancelResult result = supplier.cancel(command);
             
             if (result.isSuccess()) {
-                log.info("Cancellation succeeded on retry: bookingId={}, refund={}", 
-                    task.bookingId(), result.refundAmount());
+                log.info("Cancellation succeeded on retry: refund={}", result.refundAmount());
                 queue.complete(task.bookingId());
             } else {
                 handleFailure(task, result.errorMessage());
@@ -96,11 +95,10 @@ public class CancellationWorker {
         CancellationTask updated = task.withRetry(error);
         
         if (updated.hasRetriesRemaining()) {
-            log.warn("Cancellation retry {}/{} failed: bookingId={}, error={}", 
-                updated.retryCount(), 3, task.bookingId(), error);
+            log.warn("Cancellation retry {}/{} failed", updated.retryCount(), 3);
             queue.requeue(updated);
         } else {
-            log.error("Cancellation exhausted retries: bookingId={}", task.bookingId());
+            log.error("Cancellation exhausted retries");
             dlq.add(updated);
             queue.complete(task.bookingId());
         }

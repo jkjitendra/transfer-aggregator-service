@@ -1,0 +1,5 @@
+security:
+  api:
+    enabled: false
+  token:
+    secret: test-only-key-not-for-production-123456789012345

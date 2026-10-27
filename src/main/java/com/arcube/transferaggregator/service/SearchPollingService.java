@@ -1,6 +1,9 @@
 package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClient;
+import com.arcube.transferaggregator.config.TenantContext;
+import com.arcube.transferaggregator.config.TenantConfig;
+import com.arcube.transferaggregator.exception.TenantAccessException;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Offer;
 import com.arcube.transferaggregator.dto.PageRequest;
@@ -31,21 +34,25 @@ public class SearchPollingService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final OfferFilterService filterService;
+    private final TenantConfig tenantConfig;
     
     public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
                                  StringRedisTemplate redisTemplate,
                                  ObjectMapper objectMapper,
-                                 OfferFilterService filterService) {
+                                 OfferFilterService filterService,
+                                 TenantConfig tenantConfig) {
         this.slowMockClient = slowMockClient.orElse(null);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.filterService = filterService;
+        this.tenantConfig = tenantConfig;
     }
     
     public void cacheSearchState(String searchId, SearchResponse response, 
                                   Map<String, String> supplierSearchIds) {
         SearchStateDto state = SearchStateDto.builder()
             .searchId(searchId)
+            .tenantId(TenantContext.getTenantIdOrDefault("default"))
             .offers(new ArrayList<>(response.getOffers()))
             .statuses(new HashMap<>(response.getSupplierStatuses()))
             .supplierSearchIds(new HashMap<>(supplierSearchIds))
@@ -96,6 +103,10 @@ public class SearchPollingService {
                 .supplierStatuses(Map.of())
                 .build();
         }
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId != null && !tenantId.equals(state.getTenantId())) {
+            throw new TenantAccessException();
+        }
         
         // Poll slow supplier if still incomplete
         boolean stillIncomplete = false;
@@ -103,13 +114,19 @@ public class SearchPollingService {
             String slowSearchId = state.getSupplierSearchIds().get("SLOW_STUB");
             if (slowSearchId != null && slowMockClient.hasSearch(slowSearchId)) {
                 SupplierSearchResult result = slowMockClient.poll(slowSearchId);
+                Integer maxResults = tenantConfig.getTenant(
+                    TenantContext.getTenantIdOrDefault(tenantConfig.getDefaultTenant())).getMaxResultsPerSupplier();
+                List<OfferDto> visibleOffers = result.offers().stream()
+                    .limit(maxResults == null ? Long.MAX_VALUE : Math.max(0, maxResults))
+                    .map(this::mapToDto)
+                    .toList();
                 
                 state.getOffers().removeIf(o -> "SLOW_STUB".equals(o.getSupplierCode()));
-                state.getOffers().addAll(result.offers().stream().map(this::mapToDto).toList());
+                state.getOffers().addAll(visibleOffers);
                 
                 state.getStatuses().put("SLOW_STUB", SupplierStatusDto.builder()
                     .status(result.complete() ? "SUCCESS" : "POLLING")
-                    .resultsCount(result.offers().size())
+                    .resultsCount(visibleOffers.size())
                     .build());
                 
                 stillIncomplete = !result.complete();
