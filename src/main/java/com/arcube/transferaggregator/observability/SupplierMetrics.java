@@ -96,7 +96,7 @@ public class SupplierMetrics {
     public void recordSearchError(String supplierCode, String errorType) {
         Counter.builder("transfer.search.errors")
             .tag("supplier", supplierCode)
-            .tag("error", errorType)
+            .tag("error", safeReason(errorType))
             .register(registry)
             .increment();
     }
@@ -126,7 +126,7 @@ public class SupplierMetrics {
     public void recordBookFailure(String supplierCode, String reason) {
         Counter.builder("transfer.book.failures")
             .tag("supplier", supplierCode)
-            .tag("reason", reason)
+            .tag("reason", safeReason(reason))
             .register(registry)
             .increment();
     }
@@ -151,8 +151,38 @@ public class SupplierMetrics {
     public void recordCancelFailure(String supplierCode, String reason) {
         Counter.builder("transfer.cancel.failures")
             .tag("supplier", supplierCode)
-            .tag("reason", reason)
+            .tag("reason", safeReason(reason))
             .register(registry)
             .increment();
+    }
+
+    /** One bounded result for each supplier call, including skipped calls. */
+    public void recordSearchOutcome(String supplierCode, String outcome, Duration elapsed) {
+        String safeOutcome = switch (outcome) {
+            case "SUCCESS", "POLLING", "TIMEOUT", "ERROR", "CIRCUIT_OPEN" -> outcome;
+            default -> "ERROR";
+        };
+        Timer.builder("transfer.supplier.search.duration")
+            .tag("supplier", supplierCode)
+            .tag("outcome", safeOutcome)
+            .publishPercentileHistogram()
+            .register(registry)
+            .record(elapsed);
+    }
+
+    public void recordSearchRequest(boolean partial, Duration elapsed) {
+        Timer.builder("transfer.request.search.duration")
+            .tag("outcome", partial ? "partial" : "complete")
+            .publishPercentileHistogram()
+            .register(registry)
+            .record(elapsed);
+    }
+
+    private String safeReason(String value) {
+        return switch (value == null ? "" : value.toUpperCase(java.util.Locale.ROOT)) {
+            case "TIMEOUT", "REJECTED", "FAILED", "ERROR", "CIRCUIT_OPEN", "PRICE_CHANGED" ->
+                value.toLowerCase(java.util.Locale.ROOT);
+            default -> "other";
+        };
     }
 }

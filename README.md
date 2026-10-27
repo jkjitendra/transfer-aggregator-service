@@ -61,7 +61,7 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 | **HTTP Client** | Spring WebFlux WebClient (non-blocking) |
 | **Persistence** | PostgreSQL/Flyway for write workflows; Redis for expiring search state and distributed rate limits; Caffeine for demo-only state |
 | **Resilience** | Resilience4j (Circuit Breaker) + Custom (Rate Limiter, Bulkhead, Retry) |
-| **Observability** | Micrometer + Prometheus metrics |
+| **Observability** | Prometheus metrics, W3C/OpenTelemetry tracing, structured logs, and durable operation timelines |
 | **API Docs** | OpenAPI 3.0 + Swagger UI |
 | **Validation** | Jakarta Bean Validation |
 
@@ -184,7 +184,7 @@ Adding a new supplier is straightforward:
 | **Retry with Backoff** | Automatic retries for transient failures with exponential backoff. |
 | **Async Cancellation Queue** | Cancellation jobs are persisted before acknowledgement and claimed in bounded leased batches outside demo. Automatic retry is limited to suppliers with a verified idempotent cancellation contract. |
 | **Dead Letter Queue (DLQ)** | Exhausted safe retries enter PostgreSQL-backed dead letters. Operator replay/resolve requires an evidence reference and writes an audit event. |
-| **Admin Alerting Endpoints** | Support and operator roles can read alert counters; only operators can trigger checks. Simulate/clear routes are registered only in the `demo` profile. Counters still do not operate on real DLQ entries. |
+| **Admin Alerting Endpoints** | Support and operator roles can read alert status; only operators can trigger checks or resolve durable work. Simulate/clear routes are registered only in the `demo` profile. |
 | **Multi-Tenancy** | The validated JWT tenant claim selects an explicitly configured, enabled tenant. A conflicting `X-Tenant-Id` is rejected. Supplier filtering, default currency, and per-supplier result limits are enforced. |
 | **Health & Metrics** | Health probes at `/actuator/health`. Prometheus metrics for monitoring. |
 
@@ -773,19 +773,19 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 
 ### 5. Cancellation Queue + DLQ
 
-**Problem:** Cancellations can fail due to supplier issues, but must eventually succeed.
+**Problem:** Cancellation outcomes can be delayed or ambiguous when a supplier fails.
 
 **Solution:**
-1. **CancellationQueue**: Async processing with retries
-2. **CancellationWorker**: Processes and immediately requeues failed tasks in its loop; delayed backoff is not implemented here
-3. **CancellationDLQ**: Failed cancellations (after max retries) go to DLQ
-4. **AlertController**: Admin alert reads use the real PostgreSQL DLQ count outside demo; simulator routes exist only in demo
+1. Outside demo, PostgreSQL stores the cancellation job before the API acknowledges it.
+2. Leased workers process bounded batches with delayed, jittered retries when the supplier declares idempotent cancellation.
+3. Exhausted safe retries enter the durable DLQ. Ambiguous non-idempotent outcomes require operator review.
+4. Authenticated operator endpoints support evidence-backed replay or resolution; demo uses the local queue and simulator.
 
 **Benefits:**
 - Non-blocking cancellation requests
-- Automatic retry for transient failures
-- In-process visibility into failed cancellations through the internal DLQ component
-- The actual DLQ has an internal `resolve` method, but no authenticated replay/resolve API
+- Automatic retry only when the supplier contract makes it safe
+- Durable DLQ and operation timeline outside demo
+- Authenticated replay and resolution with audit events
 
 ---
 
@@ -809,7 +809,7 @@ tenants:
     default-currency: EUR
 ```
 
-Tenant authentication, ownership checks, and enforcement of the remaining configured fields are planned before production use.
+Tenant authentication, ownership checks, and the supplier, currency, and result limits above are enforced by the current API.
 
 ---
 
@@ -826,7 +826,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 - **Manual alert triggers** — Force an alert check on-demand
 - **Configurable thresholds** — Warning and critical levels for DLQ size and error rates
 
-**Current value:** Outside demo, alert thresholds read the PostgreSQL-backed cancellation DLQ. Role-based access is enforced, and operator replay/resolve actions write audit events. Alert delivery and operational runbooks still require deployment validation.
+**Current value:** Outside demo, alert thresholds read the PostgreSQL-backed cancellation DLQ. Role-based access is enforced, and operator replay/resolve actions write audit events. The [local observability stack](observability/OPERATIONS.md) provides Grafana dashboards, Tempo traces, Prometheus rules, and operator procedures. Production notification delivery requires deployment validation.
 
 ---
 
@@ -837,11 +837,11 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | Requirement | Status |
 |-------------|--------|
 | Design and implement airport transfer aggregator microservice | ✅ |
-| Support search, book, cancel operations | ✅ |
+| Support search, book, cancel operations | Implemented with mock suppliers; a verified live booking supplier is still required for real traffic. |
 | Clean, extensible architecture for adding suppliers | ✅ |
 | Separation of vendor-specific and domain logic | ✅ |
-| Proper logging and observability | Partial: request IDs and metrics exist; end-to-end traces do not |
-| Distributed tracing support | Not implemented |
+| Proper logging and observability | Structured production logs, request and operation IDs, workflow metrics, and a durable sanitized event timeline. |
+| Distributed tracing support | OpenTelemetry spans with W3C propagation and opt-in OTLP export; local Tempo/Grafana view. |
 | Horizontal and vertical scalability | PostgreSQL coordinates write idempotency and cancellation leases; Redis shares search state and rate counters. The slow mock's local state is demo/test only. |
 | README with build, run, test instructions | ✅ |
 | Example API calls (Postman collection) | ✅ |
@@ -857,12 +857,12 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | **Idempotency Support** | PostgreSQL atomic claims for booking and supported change commits outside demo; local booking cache in demo |
 | **Multi-Tenancy** | JWT-bound tenant controls supplier filtering, default currency, result limits, and signed IDs |
 | **Circuit Breaker** | Resilience4j integration with per-supplier configuration |
-| **Rate Limiting** | Process-local per-supplier search limiter; poll limiter exists but is not wired to the poll endpoint |
+| **Rate Limiting** | Redis-backed search and poll limits outside demo; local counters in demo/test |
 | **Bulkhead Pattern** | Concurrent call limiting |
-| **Retry with Backoff** | Automatic retry for transient failures |
+| **Retry with Backoff** | Deadline-bound retry for self-hosted read-only routing and verified-safe cancellation only |
 | **Async Cancellation Queue** | Non-blocking cancellation with retry logic |
 | **Dead Letter Queue** | Failed cancellations tracked for manual resolution |
-| **Admin Alert Endpoints** | Simulated DLQ counters, error metrics, and manual alert triggers; currently unauthenticated |
+| **Admin Alert Endpoints** | Role-gated alert, review, timeline, and DLQ operations; simulation routes are demo only |
 | **Email Alerting Configuration** | Configurable thresholds and recipients |
 | **Cancel Status Endpoint** | Check cancellation progress |
 | **SkyRide Mock Supplier** | Premium vehicle simulation |
@@ -870,7 +870,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | **Redis Integration** | Incomplete search state stored in Redis; no Caffeine fallback in `SearchPollingService` |
 | **OpenAPI 3.0 Spec** | Complete API documentation in `openapi.yaml` |
 | **Virtual Threads** | Java 21 Project Loom for high-throughput I/O |
-| **Prometheus Metrics** | Request histograms, error counters, DLQ gauges |
+| **Prometheus Metrics** | Request, supplier, idempotency, write, circuit, bulkhead, queue, and DLQ metrics |
 
 ---
 

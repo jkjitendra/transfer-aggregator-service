@@ -4,6 +4,7 @@ import com.arcube.transferaggregator.config.AggregatorProperties;
 import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.exception.RateLimitExceededException;
 import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
+import com.arcube.transferaggregator.observability.StorageTelemetry;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,8 @@ public class RateLimiter {
     private StringRedisTemplate redis;
     @Autowired(required = false)
     private Environment environment;
+    @Autowired(required = false)
+    private StorageTelemetry storageTelemetry;
     
     private final int searchRateLimit;
     private final int pollRateLimit;
@@ -121,7 +124,10 @@ public class RateLimiter {
         String tenant = TenantContext.getTenantIdOrDefault("default");
         String key = "rate:" + kind + ":" + tenant + ":" + identity;
         try {
-            Long count = redis.execute(INCREMENT_WITH_TTL, List.of(key));
+            Long count = storageTelemetry == null
+                ? redis.execute(INCREMENT_WITH_TTL, List.of(key))
+                : storageTelemetry.observe("redis", "rate_limit",
+                    () -> redis.execute(INCREMENT_WITH_TTL, List.of(key)));
             if (count == null) throw new IllegalStateException("Redis rate-limit counter returned no result");
             if (count > limit) throw new RateLimitExceededException("Rate limit exceeded; retry in 60 seconds");
         } catch (RateLimitExceededException exception) {

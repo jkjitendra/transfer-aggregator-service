@@ -1,0 +1,54 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus
+
+  tempo-volume-init:
+    image: busybox:1.37.0
+    command: ["chown", "-R", "10001:10001", "/data/tempo"]
+    volumes:
+      - tempo-data:/data/tempo
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    depends_on:
+      tempo-volume-init:
+        condition: service_completed_successfully
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/data/tempo
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    depends_on:
+      - prometheus
+      - tempo
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD before starting Grafana}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/transfer.yml:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/transfer.yml:ro
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/transfer.json:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

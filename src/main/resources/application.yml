@@ -205,6 +205,14 @@ resilience4j:
 # Observability Configuration
 # ============================================
 management:
+  tracing:
+    sampling:
+      probability: ${TRACE_SAMPLE_PROBABILITY:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTLP_TRACING_ENABLED:false}
   endpoints:
     web:
       exposure:

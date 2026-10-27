@@ -33,7 +33,7 @@ public class GlobalExceptionHandler {
             String fieldName = ((FieldError) error).getField();
             errors.put(fieldName, error.getDefaultMessage());
         });
-        log.warn("Validation error: {}", errors);
+        log.warn("Request validation failed");
         return ResponseEntity.badRequest().body(ErrorResponse.builder()
             .code("VALIDATION_ERROR")
             .message("Request validation failed")
@@ -44,7 +44,7 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleJsonParseError(HttpMessageNotReadableException ex) {
-        log.warn("JSON parse error: {}", ex.getMessage());
+        log.warn("Request JSON parsing failed");
         String message = "Invalid JSON format";
         if (ex.getMessage() != null && ex.getMessage().contains("JSON parse error")) {
             message = "Malformed JSON in request body";
@@ -82,14 +82,14 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(OfferExpiredException.class)
     public ResponseEntity<ErrorResponse> handleOfferExpired(OfferExpiredException ex) {
-        log.warn("Offer expired: {}", ex.getMessage());
+        log.warn("Offer expired");
         return ResponseEntity.status(HttpStatus.GONE).body(ErrorResponse.of(
             "OFFER_EXPIRED", ex.getMessage(), "RE_SEARCH", MDC.get("requestId")));
     }
     
     @ExceptionHandler(InvalidTokenException.class)
     public ResponseEntity<ErrorResponse> handleInvalidToken(InvalidTokenException ex) {
-        log.warn("Invalid token: {}", ex.getMessage());
+        log.warn("Invalid token");
         return ResponseEntity.badRequest().body(ErrorResponse.of(
             "INVALID_TOKEN", ex.getMessage(), null, MDC.get("requestId")));
     }
@@ -150,21 +150,21 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(SupplierNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleSupplierNotFound(SupplierNotFoundException ex) {
-        log.error("Supplier not found: {}", ex.getMessage());
+        log.warn("Supplier not found");
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(
             "SUPPLIER_NOT_FOUND", ex.getMessage(), null, MDC.get("requestId")));
     }
     
     @ExceptionHandler(CancellationNotAllowedException.class)
     public ResponseEntity<ErrorResponse> handleCancellationNotAllowed(CancellationNotAllowedException ex) {
-        log.warn("Cancellation not allowed: {}", ex.getMessage());
+        log.warn("Cancellation not allowed");
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(
             "CANCELLATION_NOT_ALLOWED", ex.getMessage(), "CONTACT_SUPPORT", MDC.get("requestId")));
     }
     
     @ExceptionHandler(ServiceBusyException.class)
     public ResponseEntity<ErrorResponse> handleServiceBusy(ServiceBusyException ex) {
-        log.warn("Service busy: {}", ex.getMessage());
+        log.warn("Service busy");
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
             .header("Retry-After", "5")
             .body(ErrorResponse.of("SERVICE_BUSY", ex.getMessage(), "RETRY", MDC.get("requestId")));
@@ -172,7 +172,7 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex) {
-        log.warn("Rate limit exceeded: {}", ex.getMessage());
+        log.warn("Rate limit exceeded");
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
             .header("Retry-After", "60")
             .body(ErrorResponse.of("RATE_LIMIT_EXCEEDED", ex.getMessage(), "WAIT", MDC.get("requestId")));
@@ -180,22 +180,22 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(SupplierTimeoutException.class)
     public ResponseEntity<ErrorResponse> handleSupplierTimeout(SupplierTimeoutException ex) {
-        log.warn("Supplier timeout: {}", ex.getMessage());
+        log.warn("Supplier timeout");
         return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(ErrorResponse.of(
             "SUPPLIER_TIMEOUT", ex.getMessage(), "RETRY", MDC.get("requestId")));
     }
     
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NoResourceFoundException ex) {
-        log.debug("Resource not found: {}", ex.getResourcePath());
+        log.debug("Resource not found");
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of(
             "NOT_FOUND", "Resource not found: " + ex.getResourcePath(), null, MDC.get("requestId")));
     }
     
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
-        // Log full exception for debugging, but don't expose details to client
-        log.error("Unexpected error [requestId={}]: {}", MDC.get("requestId"), ex.getMessage(), ex);
+        log.error("Unexpected error [requestId={}] type={}", MDC.get("requestId"),
+            ex.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ErrorResponse.of(
             "INTERNAL_ERROR", "An internal error occurred. Please try again later.", "RETRY", MDC.get("requestId")));
     }

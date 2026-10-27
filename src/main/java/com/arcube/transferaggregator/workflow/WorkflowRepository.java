@@ -1,11 +1,15 @@
 package com.arcube.transferaggregator.workflow;
 
+import com.arcube.transferaggregator.observability.WorkflowMetrics;
+import com.arcube.transferaggregator.observability.StorageTelemetry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.MDC;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -18,6 +22,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** PostgreSQL source of truth for write operations and idempotency claims. */
@@ -29,6 +34,10 @@ public class WorkflowRepository {
     private final EnvelopeCrypto crypto;
     private final int idempotencyDays;
     private final int operationDays;
+    @Autowired(required = false)
+    private WorkflowMetrics metrics;
+    @Autowired(required = false)
+    private StorageTelemetry storageTelemetry;
 
     public WorkflowRepository(JdbcTemplate jdbc, TransactionTemplate transactions, EnvelopeCrypto crypto,
                               @Value("${workflow.idempotency-retention-days:7}") int idempotencyDays,
@@ -46,6 +55,14 @@ public class WorkflowRepository {
     public record Operation(UUID id, String tenantId, String kind, String state, String supplierCode,
                             String fingerprint, byte[] encryptedResponse, Instant createdAt, Instant updatedAt) {}
     public record Claim(Operation operation, boolean acquired) {}
+    public record AuditEvent(String action, String detailCode, String traceId, String requestId,
+                             Instant createdAt) {}
+    private static final Set<String> PUBLIC_DETAIL_CODES = Set.of(
+        "BOOKING", "CHANGE", "CANCELLATION", "IN_PROGRESS", "CONFIRMED", "FAILED",
+        "UNKNOWN_OUTCOME", "MANUAL_REVIEW", "REQUESTED", "RETRY_SCHEDULED", "DLQ",
+        "SUCCEEDED", "RESOLVED", "STALE_WRITE", "EVIDENCE_RECORDED", "LEASE_EXPIRED",
+        "SUPPLIER_TIMEOUT", "SUPPLIER_ERROR", "SUPPLIER_REJECTED", "SUPPLIER_UNAVAILABLE",
+        "TOO_LATE_TO_CANCEL", "INTERRUPTED");
 
     public Claim claim(String tenantId, String kind, String clientKey, String fingerprint, String supplierCode) {
         if (clientKey == null || clientKey.isBlank() || clientKey.length() > 256) {
@@ -55,7 +72,7 @@ public class WorkflowRepository {
             throw new IllegalArgumentException("Invalid request fingerprint");
         }
         String keyHash = sha256(clientKey);
-        return transactions.execute(ignored -> {
+        java.util.function.Supplier<Claim> transaction = () -> transactions.execute(ignored -> {
             UUID candidate = UUID.randomUUID();
             Instant expiry = Instant.now().plus(idempotencyDays, ChronoUnit.DAYS);
             jdbc.update("INSERT INTO operations (id,tenant_id,kind,state,supplier_code,request_fingerprint,expires_at) " +
@@ -69,6 +86,7 @@ public class WorkflowRepository {
                 tenantId, kind, keyHash, fingerprint, candidate, Timestamp.from(expiry));
             if (claimed == 1) {
                 audit(candidate, tenantId, "system", "CLAIMED", kind);
+                if (metrics != null) metrics.claim(kind, "acquired");
                 return new Claim(get(candidate).orElseThrow(), true);
             }
             jdbc.update("DELETE FROM operations WHERE id=?", candidate);
@@ -76,16 +94,22 @@ public class WorkflowRepository {
                     "ON i.operation_id=o.id WHERE i.tenant_id=? AND i.operation_kind=? AND i.key_hash=?",
                 this::mapOperation, tenantId, kind, keyHash);
             if (existing == null || !fingerprint.equals(existing.fingerprint())) {
+                if (metrics != null) metrics.claim(kind, "conflict");
                 throw new IdempotencyConflictException();
             }
+            if (metrics != null) metrics.claim(kind, "replay");
             return new Claim(existing, false);
         });
+        return storageTelemetry == null ? transaction.get()
+            : storageTelemetry.observe("postgres", "claim", transaction);
     }
 
     public Optional<Operation> get(UUID id) {
         try {
-            return Optional.ofNullable(jdbc.queryForObject("SELECT * FROM operations WHERE id=?",
-                this::mapOperation, id));
+            java.util.function.Supplier<Operation> query = () -> jdbc.queryForObject(
+                "SELECT * FROM operations WHERE id=?", this::mapOperation, id);
+            return Optional.ofNullable(storageTelemetry == null ? query.get()
+                : storageTelemetry.observe("postgres", "get_operation", query));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -93,6 +117,15 @@ public class WorkflowRepository {
 
     public Optional<Operation> getForTenant(UUID id, String tenantId) {
         return get(id).filter(operation -> operation.tenantId().equals(tenantId));
+    }
+
+    public List<AuditEvent> timeline(UUID operationId, int limit) {
+        return jdbc.query("SELECT action,detail_code,trace_id,request_id,created_at FROM audit_events " +
+                "WHERE operation_id=? ORDER BY id ASC LIMIT ?", (rs, row) ->
+                new AuditEvent(rs.getString("action"), publicDetail(rs.getString("detail_code")),
+                    rs.getString("trace_id"), rs.getString("request_id"),
+                    rs.getTimestamp("created_at").toInstant()),
+            operationId, Math.min(Math.max(limit, 1), 100));
     }
 
     public List<Operation> reviewQueue(int limit) {
@@ -153,8 +186,21 @@ public class WorkflowRepository {
 
     public void audit(UUID operationId, String tenantId, String actor, String action, String detailCode) {
         String actorReference = actor == null || "system".equals(actor) ? "system" : sha256(actor);
-        jdbc.update("INSERT INTO audit_events (operation_id,tenant_id,actor,action,detail_code) VALUES (?,?,?,?,?)",
-            operationId, tenantId, actorReference, action, detailCode);
+        String traceId = MDC.get("traceId");
+        String requestId = MDC.get("requestId");
+        Runnable insert = () -> jdbc.update("INSERT INTO audit_events " +
+                "(operation_id,tenant_id,actor,action,detail_code,trace_id,request_id) VALUES (?,?,?,?,?,?,?)",
+            operationId, tenantId, actorReference, action, detailCode,
+            traceId != null && traceId.matches("[0-9a-f]{32}") ? traceId : null,
+            requestId != null && requestId.matches("[A-Za-z0-9._-]{1,64}") ? requestId : null);
+        if (storageTelemetry == null) insert.run();
+        else storageTelemetry.observe("postgres", "audit", insert);
+    }
+
+    private String publicDetail(String code) {
+        if (code == null) return null;
+        String category = code.split(":", 2)[0];
+        return PUBLIC_DETAIL_CODES.contains(category) ? category : "REDACTED";
     }
 
     private Operation mapOperation(ResultSet rs, int row) throws SQLException {
