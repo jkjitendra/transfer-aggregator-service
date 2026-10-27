@@ -1,6 +1,6 @@
 # Airport Transfer Aggregator Microservice
 
-A production-ready microservice for aggregating airport transfer providers (like Mozio) into a unified API. Built as part of Arcube's ancillary platform for airlines.
+An airport transfer aggregation service built as part of Arcube's ancillary platform assignment. It demonstrates supplier adapters, resilience, and API design, but is **not ready for production traffic**.
 
 ---
 
@@ -30,8 +30,8 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 | **Search** | Query multiple suppliers in parallel, return aggregated offers |
 | **Poll** | Retrieve async results with filtering, sorting, and pagination |
 | **Pricing** | Calculate total price with selected amenities |
-| **Book** | Create a booking with idempotency support |
-| **Cancel** | Cancel booking with async queue and DLQ for failed cancellations |
+| **Book** | Create a booking with a process-local, five-minute response cache for repeated idempotency keys |
+| **Cancel** | Try cancellation synchronously, then use an in-memory retry queue and DLQ on failure |
 | **Cancel Status** | Check the status of a cancellation request |
 | **Booking Change** | Search for alternatives and commit changes to existing bookings |
 
@@ -69,7 +69,7 @@ This service acts as a **central aggregator** for airport transfer suppliers, en
 
 - **Metrics**: Exposed via `/actuator/prometheus`
 - **Health Probes**: Liveness/Readiness at `/actuator/health`
-- **Request Tracing**: `X-Request-Id` header propagation for distributed tracing
+- **Request Correlation**: `X-Request-Id` on inbound requests and MDC logging; distributed trace propagation is not implemented
 - **Structured Logging**: JSON-compatible logs with `requestId` in MDC
 
 ---
@@ -173,19 +173,19 @@ Adding a new supplier is straightforward:
 | Feature | Description |
 |---------|-------------|
 | **Parallel Supplier Search** | Queries all enabled suppliers concurrently with configurable timeouts. Returns partial results if some suppliers time out. |
-| **Signed Stateless Tokens** | `offerId` and `bookingId` are Base64-encoded, HMAC-signed tokens containing supplier context, preventing enumeration attacks and eliminating database lookups for validation. |
-| **Idempotency** | Booking and commit-change operations support `Idempotency-Key` header to prevent duplicate transactions. |
+| **Signed Stateless Tokens** | `offerId` and `bookingId` are Base64url-encoded, HMAC-signed tokens containing supplier context. Their contents are readable after decoding and the token alone does not authorize an operation. |
+| **Idempotency** | Booking uses an in-memory five-minute response cache for `Idempotency-Key`; it is not atomic or durable. Commit-change accepts the header but does not yet apply idempotency. |
 | **Polling with Filtering/Sorting/Pagination** | Poll endpoint supports price range, vehicle type/class/category, capacity, amenities, provider ratings, cancellation policy, and duration filters. Sorting by price, rating, or duration. **Pagination is applied on the aggregated response from all suppliers.** |
 | **Pricing with Amenities** | Calculate total price including optional amenities (baby seats, WiFi, etc.). Get available amenities per offer. |
-| **Booking Change Workflow** | Search for alternative offers and atomically commit changes (cancel old + book new). |
+| **Booking Change Workflow** | Search and commit through suppliers implementing `ReservationChangeSupplier`; the default mock implements it. Other suppliers return an unsupported result. |
 | **Circuit Breaker** | Per-supplier circuit breaker (Resilience4j) with configurable thresholds. Fails fast for unhealthy suppliers. |
-| **Rate Limiting** | Global search rate limit (80/min) and per-searchId poll rate limit (25/min) to prevent abuse. |
+| **Rate Limiting** | Process-local search permits per supplier (80/min) and a per-searchId poll limiter component (25/min); the current poll controller does not call that limiter. |
 | **Bulkhead** | Limits concurrent supplier calls to prevent resource exhaustion. |
 | **Retry with Backoff** | Automatic retries for transient failures with exponential backoff. |
-| **Async Cancellation Queue** | Cancellations processed asynchronously with retry logic. |
-| **Dead Letter Queue (DLQ)** | Failed cancellations (after retries exhausted) go to DLQ for manual review. |
-| **Admin Alerting Endpoints** | Monitor DLQ status, error metrics, simulate/clear DLQ, trigger alert checks. |
-| **Multi-Tenancy** | Per-tenant configuration for enabled suppliers, default currency, and max results. |
+| **Async Cancellation Queue** | Failed or timed-out cancellations enter a process-local retry queue. |
+| **Dead Letter Queue (DLQ)** | Exhausted cancellation retries enter an in-memory DLQ, lost on restart. |
+| **Admin Alerting Endpoints** | Show simulated DLQ/error counters, simulate/clear those counters, and trigger alert checks. These endpoints are not authenticated and do not operate on real DLQ entries. |
+| **Multi-Tenancy** | Supplier filtering uses the caller-provided tenant ID. Configured tenant `enabled`, default currency, and result limit are not enforced; unknown IDs fall back to an unrestricted default. |
 | **Health & Metrics** | Health probes at `/actuator/health`. Prometheus metrics for monitoring. |
 
 ---
@@ -196,7 +196,7 @@ Adding a new supplier is straightforward:
 
 - **Java 21+** — Verify with `java -version`
 - **Maven** — Wrapper included (`./mvnw`)
-- **Redis** (optional) — Required for distributed caching in production
+- **Redis** — Required to use the incomplete-search polling path; the service writes and reads that state through Redis
 
 ### Clone & Setup
 
@@ -273,7 +273,7 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 
 | Key | Default | Description | Effect When Changed |
 |-----|---------|-------------|---------------------|
-| `transfer.aggregator.mode` | `stub` | Operation mode | Set to `real` to use actual supplier APIs |
+| `transfer.aggregator.mode` | `stub` | Operation mode | Set to `real` to register Mozio; separately disable `SKYRIDE` and `SLOW_STUB` mocks if they must not be exposed |
 | `transfer.aggregator.global-timeout-seconds` | `10` | Max time for all operations | Increase for slow suppliers |
 
 ### Supplier Configuration
@@ -295,8 +295,8 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `transfer.aggregator.resilience.max-concurrent-calls` | `50` | Max concurrent supplier calls (bulkhead) |
-| `transfer.aggregator.resilience.search-rate-limit-per-minute` | `80` | Global search rate limit |
-| `transfer.aggregator.resilience.poll-rate-limit-per-minute` | `25` | Poll rate limit per searchId |
+| `transfer.aggregator.resilience.search-rate-limit-per-minute` | `80` | Process-local search limit per supplier |
+| `transfer.aggregator.resilience.poll-rate-limit-per-minute` | `25` | Configured per-searchId poll limit; currently not enforced by the poll controller |
 
 ### Circuit Breaker Configuration (Resilience4j)
 
@@ -313,10 +313,10 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | Key | Description |
 |-----|-------------|
 | `transfer.aggregator.tenants.<tenant-id>.name` | Tenant name |
-| `transfer.aggregator.tenants.<tenant-id>.enabled` | Enable/disable tenant |
+| `transfer.aggregator.tenants.<tenant-id>.enabled` | Declared but not currently enforced |
 | `transfer.aggregator.tenants.<tenant-id>.enabled-suppliers` | Allowed suppliers for tenant |
-| `transfer.aggregator.tenants.<tenant-id>.default-currency` | Default currency (USD, EUR) |
-| `transfer.aggregator.tenants.<tenant-id>.max-results-per-supplier` | Max results per supplier |
+| `transfer.aggregator.tenants.<tenant-id>.default-currency` | Declared but not currently applied to searches |
+| `transfer.aggregator.tenants.<tenant-id>.max-results-per-supplier` | Declared but not currently enforced |
 
 ### Alerting Configuration
 
@@ -375,8 +375,8 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `GET` | `/api/v1/transfers/bookings/{bookingId}/cancel-status` | Get cancel status |
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/search-changes` | Search booking alternatives |
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/commit-change` | Commit booking change |
-| `GET` | `/api/v1/admin/alerts/dlq` | Get DLQ status |
-| `DELETE` | `/api/v1/admin/alerts/dlq` | Clear DLQ |
+| `GET` | `/api/v1/admin/alerts/dlq` | Get simulated DLQ metric counter status |
+| `DELETE` | `/api/v1/admin/alerts/dlq` | Clear simulated DLQ metric counter, not cancellation DLQ entries |
 | `GET` | `/api/v1/admin/alerts/errors` | Get error metrics |
 | `POST` | `/api/v1/admin/alerts/dlq/simulate` | Simulate DLQ items |
 | `POST` | `/api/v1/admin/alerts/check` | Trigger alert check |
@@ -516,7 +516,7 @@ curl "http://localhost:8080/api/v1/pricing/eyJzdXAiOiJTVFVCIi.../amenities"
 Book a transfer using an offer ID.
 
 **Headers:**
-- `Idempotency-Key` (optional): Unique key for idempotent requests
+- `Idempotency-Key` (optional): Replays a cached booking response for five minutes in the same process; it does not prevent concurrent or cross-replica duplicates
 
 **Request Body:**
 ```json
@@ -619,10 +619,10 @@ Search for alternative offers to change an existing booking.
 
 #### POST /api/v1/transfers/bookings/{bookingId}/commit-change
 
-Commit a booking change (atomically cancel old + book new).
+Commit a booking change if the supplier supports its native change operation. The current real Mozio adapter does not implement the change port.
 
 **Headers:**
-- `Idempotency-Key` (optional): For idempotent requests
+- `Idempotency-Key` (optional): Accepted by this endpoint but currently ignored by the service
 
 **Request Body:**
 ```json
@@ -655,7 +655,7 @@ curl http://localhost:8080/api/v1/admin/alerts/errors
 # Simulate DLQ items (testing)
 curl -X POST "http://localhost:8080/api/v1/admin/alerts/dlq/simulate?count=5"
 
-# Clear DLQ
+# Clear simulated DLQ metric counter (does not resolve real cancellation tasks)
 curl -X DELETE http://localhost:8080/api/v1/admin/alerts/dlq
 
 # Trigger alert check
@@ -670,18 +670,13 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 
 **Problem:** Storing search context and offer details for every search creates state management complexity and database overhead.
 
-**Solution:** `offerId` and `bookingId` are Base64-encoded, HMAC-SHA256 signed tokens containing:
-- Supplier code
-- Search ID
-- Result ID
-- Expiration timestamp
-- Issued timestamp
+**Current implementation:** HMAC-SHA256 signs Base64url payloads. Offer IDs contain supplier/search/result IDs and issue/expiry timestamps. Booking IDs contain supplier/reservation/confirmation IDs and no expiry. Neither token is encrypted or tenant-bound.
 
 **Benefits:**
-- No database lookup for validation
-- Prevents ID enumeration attacks
+- No database lookup for signature validation
+- Makes forged IDs difficult without the signing key
 - Self-contained context for booking
-- Tamper-proof (signature verification)
+- Detects payload tampering; authorization must be checked separately
 
 ---
 
@@ -743,15 +738,15 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 
 **Solution:**
 1. **CancellationQueue**: Async processing with retries
-2. **CancellationWorker**: Processes queue with exponential backoff
+2. **CancellationWorker**: Processes and immediately requeues failed tasks in its loop; delayed backoff is not implemented here
 3. **CancellationDLQ**: Failed cancellations (after max retries) go to DLQ
-4. **AlertController**: Admin endpoints to monitor/clear DLQ
+4. **AlertController**: Admin endpoints currently report and clear a separate simulated DLQ counter
 
 **Benefits:**
 - Non-blocking cancellation requests
 - Automatic retry for transient failures
-- Visibility into failed cancellations
-- Manual resolution possible via DLQ
+- In-process visibility into failed cancellations through the internal DLQ component
+- The actual DLQ has an internal `resolve` method, but no authenticated replay/resolve API
 
 ---
 
@@ -762,10 +757,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 - Airline B prefers European suppliers with EUR pricing
 - Premium partners want more results and access to all suppliers
 
-**Solution:** Per-tenant configuration allowing:
-- **Enabled suppliers** — Restrict which suppliers are queried per tenant
-- **Default currency** — Set preferred currency per tenant
-- **Max results** — Limit results per supplier based on partnership tier
+**Current implementation:** The search flow filters suppliers using `enabled-suppliers` from the caller-provided `X-Tenant-Id`. The configured default currency, maximum results, and tenant `enabled` flag are not applied. Unknown tenant IDs fall back to the unrestricted default configuration.
 
 **Example:**
 ```yaml
@@ -778,10 +770,7 @@ tenants:
     default-currency: EUR
 ```
 
-**Benefits:**
-- Single deployment serves multiple clients
-- Respects contractual agreements with suppliers
-- Flexible pricing and result controls per partnership
+Tenant authentication, ownership checks, and enforcement of the remaining configured fields are planned before production use.
 
 ---
 
@@ -792,17 +781,13 @@ tenants:
 - Are error rates spiking for a specific operation?
 - Is the system healthy enough to handle traffic?
 
-**Solution:** Admin alert endpoints providing:
-- **DLQ monitoring** — View/clear dead letter queue items
+**Current implementation:** Alert endpoints provide:
+- **Simulated DLQ counter** — View/clear a counter separate from real cancellation DLQ items
 - **Error metrics** — Aggregate error counts by operation type
 - **Manual alert triggers** — Force an alert check on-demand
 - **Configurable thresholds** — Warning and critical levels for DLQ size and error rates
 
-**Benefits:**
-- Proactive issue detection before customer impact
-- Quick diagnosis during incidents
-- Automated email alerts when thresholds exceeded
-- Self-service for operations team (no code deployment needed)
+**Current value:** This demonstrates an alerting flow and optional email notifications for simulated counter thresholds. Access control, linkage to actual cancellation jobs, and operational runbooks remain to be built.
 
 ---
 
@@ -816,9 +801,9 @@ tenants:
 | Support search, book, cancel operations | ✅ |
 | Clean, extensible architecture for adding suppliers | ✅ |
 | Separation of vendor-specific and domain logic | ✅ |
-| Proper logging and observability | ✅ |
-| Distributed tracing support | ✅ |
-| Horizontal and vertical scalability | ✅ |
+| Proper logging and observability | Partial: request IDs and metrics exist; end-to-end traces do not |
+| Distributed tracing support | Not implemented |
+| Horizontal and vertical scalability | Partial: Redis search cache is shared, but idempotency, limits, and cancellation work are process-local |
 | README with build, run, test instructions | ✅ |
 | Example API calls (Postman collection) | ✅ |
 
@@ -830,20 +815,20 @@ tenants:
 | **Pricing Endpoint** | Dedicated endpoint for calculating total price with amenities |
 | **Amenities API** | Get available amenities per offer |
 | **Booking Change Workflow** | Search alternatives and commit changes to existing bookings |
-| **Idempotency Support** | Idempotency-Key header for booking and commit-change operations |
-| **Multi-Tenancy** | Per-tenant configuration for suppliers, currency, max results |
+| **Idempotency Support** | Process-local booking response cache; change header is currently ignored |
+| **Multi-Tenancy** | Caller-provided tenant ID filters suppliers; other tenant settings are not enforced |
 | **Circuit Breaker** | Resilience4j integration with per-supplier configuration |
-| **Rate Limiting** | Global search + per-searchId poll rate limits |
+| **Rate Limiting** | Process-local per-supplier search limiter; poll limiter exists but is not wired to the poll endpoint |
 | **Bulkhead Pattern** | Concurrent call limiting |
 | **Retry with Backoff** | Automatic retry for transient failures |
 | **Async Cancellation Queue** | Non-blocking cancellation with retry logic |
 | **Dead Letter Queue** | Failed cancellations tracked for manual resolution |
-| **Admin Alert Endpoints** | DLQ monitoring, error metrics, manual alert triggers |
+| **Admin Alert Endpoints** | Simulated DLQ counters, error metrics, and manual alert triggers; currently unauthenticated |
 | **Email Alerting Configuration** | Configurable thresholds and recipients |
 | **Cancel Status Endpoint** | Check cancellation progress |
 | **SkyRide Mock Supplier** | Premium vehicle simulation |
 | **Slow Mock Supplier** | Async/polling behavior simulation |
-| **Redis Integration** | Distributed caching configuration (Caffeine fallback) |
+| **Redis Integration** | Incomplete search state stored in Redis; no Caffeine fallback in `SearchPollingService` |
 | **OpenAPI 3.0 Spec** | Complete API documentation in `openapi.yaml` |
 | **Virtual Threads** | Java 21 Project Loom for high-throughput I/O |
 | **Prometheus Metrics** | Request histograms, error counters, DLQ gauges |
