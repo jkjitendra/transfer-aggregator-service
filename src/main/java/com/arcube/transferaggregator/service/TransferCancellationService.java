@@ -13,7 +13,6 @@ import com.arcube.transferaggregator.resilience.CancellationDLQ;
 import com.arcube.transferaggregator.resilience.CancellationQueue;
 import com.arcube.transferaggregator.resilience.CancellationTask;
 import com.arcube.transferaggregator.workflow.DurableCancellationWorkflow;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,15 +23,29 @@ import java.util.concurrent.*;
 /** Orchestrates cancellation operations with resilient retry queue */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransferCancellationService {
     
     private final SupplierRegistry supplierRegistry;
     private final BookingIdCodec bookingIdCodec;
     private final CancellationQueue cancellationQueue;
     private final CancellationDLQ cancellationDLQ;
-    @Autowired(required = false)
-    private DurableCancellationWorkflow durableWorkflow;
+    private final DurableCancellationWorkflow durableWorkflow;
+
+    @Autowired
+    public TransferCancellationService(SupplierRegistry supplierRegistry, BookingIdCodec bookingIdCodec,
+                                       CancellationQueue cancellationQueue, CancellationDLQ cancellationDLQ,
+                                       Optional<DurableCancellationWorkflow> durableWorkflow) {
+        this.supplierRegistry = supplierRegistry;
+        this.bookingIdCodec = bookingIdCodec;
+        this.cancellationQueue = cancellationQueue;
+        this.cancellationDLQ = cancellationDLQ;
+        this.durableWorkflow = durableWorkflow.orElse(null);
+    }
+
+    TransferCancellationService(SupplierRegistry supplierRegistry, BookingIdCodec bookingIdCodec,
+                                CancellationQueue cancellationQueue, CancellationDLQ cancellationDLQ) {
+        this(supplierRegistry, bookingIdCodec, cancellationQueue, cancellationDLQ, Optional.empty());
+    }
     
     private static final long TIMEOUT_SECONDS = 5;
     

@@ -14,7 +14,7 @@ import java.util.Base64;
 
 /** Encrypts sensitive workflow payloads before they reach PostgreSQL or backups. */
 @Component
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class EnvelopeCrypto {
     private static final SecureRandom RANDOM = new SecureRandom();
     private final SecretKeySpec key;

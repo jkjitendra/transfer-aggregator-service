@@ -13,10 +13,12 @@ import com.arcube.transferaggregator.testutil.ArcubeTestData;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.core.env.StandardEnvironment;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,7 +67,9 @@ class SearchConcurrencyIT {
         when(tenants.getTenant("default")).thenReturn(new AggregatorProperties.TenantProperties());
         when(tenants.isSupplierEnabled(anyString(), anyString())).thenReturn(true);
         TransferSearchService service = new TransferSearchService(registry, properties,
-            new SupplierBulkhead(properties), new RateLimiter(properties), mock(SearchPollingService.class),
+            new SupplierBulkhead(properties), new RateLimiter(properties, Optional.empty(),
+                new StandardEnvironment(), Optional.empty()),
+            mock(SearchPollingService.class),
             new SupplierCircuitBreaker(CircuitBreakerRegistry.ofDefaults()), tenants);
         List<Long> durations = new ArrayList<>();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {

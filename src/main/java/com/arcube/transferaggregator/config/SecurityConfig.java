@@ -63,7 +63,7 @@ public class SecurityConfig {
 
     @Bean
     @ConditionalOnProperty(name = "security.api.enabled", havingValue = "false")
-    public SecurityFilterChain demoSecurityFilterChain(HttpSecurity http, ApiSecurityProperties properties) throws Exception {
+    public SecurityFilterChain testSecurityFilterChain(HttpSecurity http, ApiSecurityProperties properties) throws Exception {
         return http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource(properties)))
@@ -75,7 +75,9 @@ public class SecurityConfig {
     @ConditionalOnMissingBean(JwtDecoder.class)
     @ConditionalOnProperty(name = "security.api.enabled", havingValue = "true", matchIfMissing = true)
     public JwtDecoder jwtDecoder(ApiSecurityProperties properties) {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withIssuerLocation(properties.getIssuerUri()).build();
+        NimbusJwtDecoder decoder = properties.getJwkSetUri() == null || properties.getJwkSetUri().isBlank()
+            ? NimbusJwtDecoder.withIssuerLocation(properties.getIssuerUri()).build()
+            : NimbusJwtDecoder.withJwkSetUri(properties.getJwkSetUri()).build();
         OAuth2TokenValidator<Jwt> audience = jwt -> jwt.getAudience().contains(properties.getAudience())
             ? OAuth2TokenValidatorResult.success()
             : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Invalid audience", null));

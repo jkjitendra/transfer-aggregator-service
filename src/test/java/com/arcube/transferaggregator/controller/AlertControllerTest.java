@@ -6,33 +6,29 @@ import com.arcube.transferaggregator.service.AlertingService;
 import com.arcube.transferaggregator.service.AlertingService.AlertLevel;
 import com.arcube.transferaggregator.service.AlertingService.AlertStatus;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.context.ActiveProfiles;
 
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest({AlertController.class, AlertSimulationController.class})
+@WebMvcTest(AlertController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@ActiveProfiles("demo")
 @Import(GlobalExceptionHandler.class)
 class AlertControllerTest {
 
     @Autowired
     MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     AlertingService alertingService;
 
-    @MockBean
+    @MockitoBean
     ErrorMetrics errorMetrics;
 
     @Test
@@ -58,30 +54,6 @@ class AlertControllerTest {
             .andExpect(jsonPath("$.bookingErrors").value(2.0))
             .andExpect(jsonPath("$.cancellationErrors").value(3.0))
             .andExpect(jsonPath("$.totalDlqSize").value(4));
-    }
-
-    @Test
-    void simulateDlqItems() throws Exception {
-        when(errorMetrics.getDlqSize("main")).thenReturn(5);
-
-        mockMvc.perform(post("/api/v1/admin/alerts/dlq/simulate")
-                .param("count", "3"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.added").value(3))
-            .andExpect(jsonPath("$.newSize").value(5));
-
-        verify(errorMetrics, times(3)).incrementDlqSize(eq("main"));
-    }
-
-    @Test
-    void clearDlq() throws Exception {
-        when(errorMetrics.getDlqSize("main")).thenReturn(2);
-
-        mockMvc.perform(delete("/api/v1/admin/alerts/dlq"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.cleared").value(2));
-
-        verify(errorMetrics, times(2)).decrementDlqSize(eq("main"));
     }
 
     @Test

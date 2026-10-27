@@ -7,9 +7,9 @@ import com.arcube.transferaggregator.config.AggregatorProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -32,7 +32,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "security.api.issuer-uri=https://issuer.example.test",
     "security.api.audience=transfer-api",
     "security.token.secret=test-only-key-not-for-production-123456789012345",
-    "transfer.aggregator.mode=stub"
+    "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+    "spring.flyway.enabled=false",
+    "management.otlp.metrics.export.enabled=false",
+    "transfer.aggregator.tenants.default.enabled=true",
+    "transfer.aggregator.tenants.tenant-a.enabled=true",
+    "transfer.aggregator.tenants.tenant-b.enabled=true"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -41,17 +46,16 @@ class SecurityBoundaryTest {
     @Autowired TenantConfig tenantConfig;
     @Autowired AggregatorProperties aggregatorProperties;
     @Autowired Environment environment;
-    @MockBean JwtDecoder decoder;
-    @MockBean PricingService pricingService;
-    @MockBean AlertingService alertingService;
+    @MockitoBean JwtDecoder decoder;
+    @MockitoBean PricingService pricingService;
+    @MockitoBean AlertingService alertingService;
 
     @BeforeEach
     void setUp() {
         assertThat(tenantConfig.isKnownAndEnabled("tenant-a"))
-            .as("Configured tenant keys: %s, raw tenant enabled: %s, mail host: %s",
+            .as("Configured tenant keys: %s, raw tenant enabled: %s",
                 aggregatorProperties.getTenants().keySet(),
-                environment.getProperty("transfer.aggregator.tenants.tenant-a.enabled"),
-                environment.getProperty("spring.mail.host")).isTrue();
+                environment.getProperty("transfer.aggregator.tenants.tenant-a.enabled")).isTrue();
         when(decoder.decode(anyString())).thenAnswer(invocation -> {
             String token = invocation.getArgument(0);
             String[] fields = token.split("\\.", -1);

@@ -24,7 +24,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.*;
@@ -43,21 +42,23 @@ public class SearchPollingService {
     private final ObjectMapper objectMapper;
     private final OfferFilterService filterService;
     private final TenantConfig tenantConfig;
-    @Autowired(required = false)
-    private RateLimiter rateLimiter;
-    @Autowired(required = false)
-    private StorageTelemetry storageTelemetry;
+    private final RateLimiter rateLimiter;
+    private final StorageTelemetry storageTelemetry;
     
     public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
                                  StringRedisTemplate redisTemplate,
                                  ObjectMapper objectMapper,
                                  OfferFilterService filterService,
-                                 TenantConfig tenantConfig) {
+                                 TenantConfig tenantConfig,
+                                 Optional<RateLimiter> rateLimiter,
+                                 Optional<StorageTelemetry> storageTelemetry) {
         this.slowMockClient = slowMockClient.orElse(null);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.filterService = filterService;
         this.tenantConfig = tenantConfig;
+        this.rateLimiter = rateLimiter.orElse(null);
+        this.storageTelemetry = storageTelemetry.orElse(null);
     }
     
     public void cacheSearchState(String searchId, SearchResponse response, 

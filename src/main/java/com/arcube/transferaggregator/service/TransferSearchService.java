@@ -18,7 +18,6 @@ import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import com.arcube.transferaggregator.observability.SupplierMetrics;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.MDC;
@@ -31,7 +30,6 @@ import java.util.concurrent.*;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransferSearchService {
     
     private final SupplierRegistry supplierRegistry;
@@ -41,10 +39,33 @@ public class TransferSearchService {
     private final SearchPollingService pollingService;
     private final SupplierCircuitBreaker circuitBreaker;
     private final TenantConfig tenantConfig;
-    @Autowired(required = false)
-    private SupplierMetrics supplierMetrics;
-    @Autowired(required = false)
-    private ObservationRegistry observations;
+    private final SupplierMetrics supplierMetrics;
+    private final ObservationRegistry observations;
+
+    @Autowired
+    public TransferSearchService(SupplierRegistry supplierRegistry, AggregatorProperties properties,
+                                 SupplierBulkhead bulkhead, RateLimiter rateLimiter,
+                                 SearchPollingService pollingService, SupplierCircuitBreaker circuitBreaker,
+                                 TenantConfig tenantConfig, Optional<SupplierMetrics> supplierMetrics,
+                                 Optional<ObservationRegistry> observations) {
+        this.supplierRegistry = supplierRegistry;
+        this.properties = properties;
+        this.bulkhead = bulkhead;
+        this.rateLimiter = rateLimiter;
+        this.pollingService = pollingService;
+        this.circuitBreaker = circuitBreaker;
+        this.tenantConfig = tenantConfig;
+        this.supplierMetrics = supplierMetrics.orElse(null);
+        this.observations = observations.orElse(null);
+    }
+
+    TransferSearchService(SupplierRegistry supplierRegistry, AggregatorProperties properties,
+                          SupplierBulkhead bulkhead, RateLimiter rateLimiter,
+                          SearchPollingService pollingService, SupplierCircuitBreaker circuitBreaker,
+                          TenantConfig tenantConfig) {
+        this(supplierRegistry, properties, bulkhead, rateLimiter, pollingService, circuitBreaker,
+            tenantConfig, Optional.empty(), Optional.empty());
+    }
     
     public SearchResponse search(SearchRequest request) {
         long searchStarted = System.nanoTime();

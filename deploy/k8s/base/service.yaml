@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transfer-aggregator
+spec:
+  type: ClusterIP
+  selector:
+    app: transfer-aggregator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

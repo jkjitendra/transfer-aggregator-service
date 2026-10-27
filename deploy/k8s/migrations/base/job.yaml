@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: transfer-migrate
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: flyway
+          image: registry.invalid/transfer-aggregator-migrations:replace-with-digest
+          imagePullPolicy: IfNotPresent
+          args: ["-connectRetries=30", "migrate"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: transfer-runtime
+                  key: DATABASE_URL
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: transfer-runtime
+                  key: DATABASE_USER
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: transfer-runtime
+                  key: DATABASE_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

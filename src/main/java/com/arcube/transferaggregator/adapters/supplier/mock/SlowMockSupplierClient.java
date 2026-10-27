@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 // Returns results progressively over 3 calls (initial + 2 polls).
 @Slf4j
 @Component
-@Profile("demo | test")
+@Profile("test | local")
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "transfer.aggregator.suppliers.slow-stub.enabled", havingValue = "true")
 public class SlowMockSupplierClient implements IdempotentCancellationSupplier {

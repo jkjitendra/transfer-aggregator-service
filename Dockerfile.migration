@@ -1,0 +1,5 @@
+FROM flyway/flyway:11.7.2
+COPY src/main/resources/db/migration/ /flyway/sql/
+ENV FLYWAY_LOCATIONS=filesystem:/flyway/sql
+ENTRYPOINT ["flyway"]
+CMD ["migrate"]

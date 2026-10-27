@@ -5,8 +5,10 @@ import com.arcube.transferaggregator.config.AggregatorProperties.ResiliencePrope
 import com.arcube.transferaggregator.exception.RateLimitExceededException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.core.env.StandardEnvironment;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,7 +28,8 @@ class RateLimiterTest {
         when(resilienceProperties.getSearchRateLimitPerMinute()).thenReturn(2);
         when(resilienceProperties.getPollRateLimitPerMinute()).thenReturn(10);
         
-        RateLimiter limiter = new RateLimiter(properties);
+        RateLimiter limiter = new RateLimiter(properties, Optional.empty(),
+            new StandardEnvironment(), Optional.empty());
         String supplier = "TEST";
         
         limiter.acquireSearchPermit(supplier); // 1
@@ -42,7 +45,8 @@ class RateLimiterTest {
         when(resilienceProperties.getSearchRateLimitPerMinute()).thenReturn(10);
         when(resilienceProperties.getPollRateLimitPerMinute()).thenReturn(2);
         
-        RateLimiter limiter = new RateLimiter(properties);
+        RateLimiter limiter = new RateLimiter(properties, Optional.empty(),
+            new StandardEnvironment(), Optional.empty());
         String searchId = "abc-123";
         
         limiter.acquirePollPermit(searchId); // 1

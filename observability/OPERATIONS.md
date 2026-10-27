@@ -1,15 +1,15 @@
 # Observability operations
 
-This directory runs a **local demo** of Prometheus, Grafana OSS, and Tempo. The dashboard shows service and supplier trends; Tempo shows request and supplier span waterfalls. The authenticated operation timeline API shows durable booking, change, and cancellation transitions. This local stack is not a production monitoring deployment.
+This directory runs a **local observability stack** with Prometheus, Grafana OSS, and Tempo. Grafana shows service and supplier trends after Prometheus has an operator service identity. Tempo shows request and supplier span waterfalls. The authenticated operation timeline API shows durable booking, change, and cancellation transitions. This stack is for local development.
 
 ## Start the local view
 
 1. Set a local Grafana password in your shell: `export GRAFANA_ADMIN_PASSWORD=<your-local-password>`.
 2. Start the stack: `docker-compose -f observability/docker-compose.yml up -d`.
-3. Start the application with `SPRING_PROFILES_ACTIVE=demo` and `OTLP_TRACING_ENABLED=true`. The default OTLP URL is `http://localhost:4318/v1/traces`.
+3. Start the application with `SPRING_PROFILES_ACTIVE=local` and `OTLP_TRACING_ENABLED=true`. The default OTLP URL is `http://localhost:4318/v1/traces`.
 4. Open `http://localhost:3000`, sign in as `admin`, and open **Transfer Aggregator Operations**. Use Grafana Explore with the **Tempo** data source to search traces.
 
-Prometheus scrapes `host.docker.internal:8080/actuator/prometheus`; this works with the local demo profile. The normal API protects metrics with the `OPERATOR` role, so a production scraper must use an approved service identity and a private route. Keep Grafana, Prometheus, and Tempo behind authentication and private networking in any shared environment. The local Tempo volume keeps traces for seven days; Prometheus retains metrics for fifteen days.
+Prometheus targets `host.docker.internal:8080/actuator/prometheus`. That endpoint requires an `OPERATOR` bearer token in both supported runtime profiles, so the target remains unauthorized until a service identity is configured for the scraper. A human access token is unsuitable because it expires. Configure an approved OAuth2 client and rotate its credentials through a private secret source before relying on dashboard metrics or alerts. Keep Grafana, Prometheus, and Tempo behind authentication and private networking in any shared environment. The local Tempo volume keeps traces for seven days; Prometheus retains metrics for fifteen days.
 
 ## Find an operation
 
@@ -40,6 +40,6 @@ Check `/actuator/health/liveness` and `/actuator/health/readiness` separately. P
 
 ## Restore and drill
 
-Restore PostgreSQL from a tested backup into an isolated environment, apply the checked-in Flyway migrations, and verify operation, idempotency, cancellation, dead-letter, and audit counts before routing traffic. Preserve the workflow encryption key and HMAC signing keys through the recovery window; losing either makes durable payloads or signed IDs unreadable. Redis search state is short lived, so clients may need to repeat searches after Redis restoration. In an on-call drill, create a demo cancellation failure, locate it by operation ID, follow the timeline and trace, review its DLQ state, and verify that no customer data appears in metrics or logs.
+Restore PostgreSQL from a tested backup into an isolated environment, apply the checked-in Flyway migrations, and verify operation, idempotency, cancellation, dead-letter, and audit counts before routing traffic. Preserve the workflow encryption key and HMAC signing keys through the recovery window; losing either makes durable payloads or signed IDs unreadable. Redis search state is short lived, so clients may need to repeat searches after Redis restoration. In an on-call drill, trigger a local cancellation failure, locate it by operation ID, follow the timeline and trace, review its DLQ state, and verify that no customer data appears in metrics or logs.
 
 Prometheus alert rules in `rules.yml` are intentionally local evaluation rules. Connect them to an authenticated notification route and test delivery with the actual on-call team before production use.

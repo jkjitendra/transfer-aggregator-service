@@ -1,0 +1,79 @@
+name: Verify and build
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11-alpine3.24
+        env:
+          POSTGRES_DB: transfer_test
+          POSTGRES_USER: transfer_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U transfer_test -d transfer_test"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+      redis:
+        image: redis:7.4.12-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      TRANSFER_TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/transfer_test
+      TRANSFER_TEST_REDIS_HOST: localhost
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Validate OpenAPI references and operations
+        run: ruby scripts/validate_openapi.rb
+      - name: Render deployment manifests
+        run: |
+          bash -n scripts/generate-local-env.sh scripts/render-k8s-release.sh
+          kubectl kustomize deploy/k8s/overlays/production > /dev/null
+          kubectl kustomize deploy/k8s/migrations/production > /dev/null
+      - name: Test, migrate PostgreSQL, and run SpotBugs
+        run: ./mvnw -B -ntp -Pstatic-analysis clean verify
+      - name: Build immutable candidate image
+        run: |
+          docker build --tag "transfer-aggregator:sha-${GITHUB_SHA}" .
+          docker build --file Dockerfile.migration --tag "transfer-aggregator-migrations:sha-${GITHUB_SHA}" .
+      - name: Scan source secrets and configuration
+        run: >-
+          docker run --rm -e TRIVY_CACHE_DIR=/cache -v trivy-cache:/cache
+          -v "${PWD}:/work:ro" aquasec/trivy:0.76.1
+          fs --scanners secret,misconfig --severity CRITICAL
+          --skip-dirs /work/target --skip-dirs /work/.git
+          --skip-files /work/pom.xml --exit-code 1 /work
+      - name: Scan Maven dependency SBOM
+        run: >-
+          docker run --rm -e TRIVY_CACHE_DIR=/cache -v trivy-cache:/cache
+          -v "${PWD}/target:/sbom:ro" aquasec/trivy:0.76.1
+          sbom --severity CRITICAL --ignore-unfixed --exit-code 1
+          /sbom/classes/META-INF/sbom/application.cdx.json
+      - name: Scan candidate container operating systems
+        run: |
+          for image in "transfer-aggregator:sha-${GITHUB_SHA}" "transfer-aggregator-migrations:sha-${GITHUB_SHA}"; do
+            docker run --rm -e TRIVY_CACHE_DIR=/cache -v trivy-cache:/cache \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.76.1 image --scanners vuln --pkg-types os --skip-java-db-update \
+              --severity CRITICAL --ignore-unfixed \
+              --exit-code 1 "$image"
+          done

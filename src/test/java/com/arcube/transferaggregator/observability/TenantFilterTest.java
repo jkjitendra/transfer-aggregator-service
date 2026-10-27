@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -20,7 +21,7 @@ import static org.mockito.Mockito.when;
 
 class TenantFilterTest {
     private final TenantConfig tenantConfig = mock(TenantConfig.class);
-    private final ApiSecurityProperties properties = new ApiSecurityProperties();
+    private final ApiSecurityProperties properties = new ApiSecurityProperties(new MockEnvironment());
     private final TenantFilter filter = new TenantFilter(tenantConfig, properties);
 
     @AfterEach
