@@ -16,7 +16,6 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,24 +33,27 @@ import java.util.concurrent.TimeoutException;
 /** Persists cancellation before acknowledgement and processes leased jobs in bounded batches. */
 @Slf4j
 @Service
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class DurableCancellationWorkflow {
     private final CancellationRepository repository;
     private final SupplierRegistry registry;
     private final int maxAttempts;
-    @Autowired(required = false)
-    private AggregatorProperties properties;
-    @Autowired(required = false)
-    private ObservationRegistry observations;
-    @Value("${workflow.cancellation-lease-seconds:30}")
-    private int leaseSeconds = 30;
+    private final AggregatorProperties properties;
+    private final ObservationRegistry observations;
+    private final int leaseSeconds;
 
     public DurableCancellationWorkflow(CancellationRepository repository, SupplierRegistry registry,
-                                       @Value("${workflow.cancellation-max-attempts:3}") int maxAttempts) {
+                                       @Value("${workflow.cancellation-max-attempts:3}") int maxAttempts,
+                                       AggregatorProperties properties, ObservationRegistry observations,
+                                       @Value("${workflow.cancellation-lease-seconds:30}") int leaseSeconds) {
         this.repository = repository;
         this.registry = registry;
         if (maxAttempts < 1 || maxAttempts > 20) throw new IllegalStateException("Invalid cancellation attempt limit");
+        if (leaseSeconds < 10 || leaseSeconds > 3600) throw new IllegalStateException("Invalid cancellation lease");
         this.maxAttempts = maxAttempts;
+        this.properties = properties;
+        this.observations = observations;
+        this.leaseSeconds = leaseSeconds;
     }
 
     public CancelResponse request(String bookingId, BookingPayload payload) {
@@ -110,14 +112,10 @@ public class DurableCancellationWorkflow {
     private void process(CancellationRepository.Job job) {
         MDC.put("operationId", job.operationId().toString());
         try {
-            if (observations == null) {
-                processAttempt(job);
-            } else {
-                Observation.createNotStarted("transfer.cancellation.attempt", observations)
-                    .lowCardinalityKeyValue("supplier", job.supplierCode())
-                    .highCardinalityKeyValue("operation.id", job.operationId().toString())
-                    .observe(() -> processAttempt(job));
-            }
+            Observation.createNotStarted("transfer.cancellation.attempt", observations)
+                .lowCardinalityKeyValue("supplier", job.supplierCode())
+                .highCardinalityKeyValue("operation.id", job.operationId().toString())
+                .observe(() -> processAttempt(job));
         } finally {
             MDC.clear();
         }
@@ -135,7 +133,7 @@ public class DurableCancellationWorkflow {
                 SupplierOperationPolicy.Operation.CANCELLATION, null).toMillis(),
             Math.max(1000, (leaseSeconds - 5L) * 1000));
         var executor = Executors.newVirtualThreadPerTaskExecutor();
-        Observation parent = observations == null ? null : observations.getCurrentObservation();
+        Observation parent = observations.getCurrentObservation();
         try {
             Future<SupplierCancelResult> future = executor.submit(() -> {
                 TenantContext.setTenantId(job.tenantId());
@@ -143,7 +141,6 @@ public class DurableCancellationWorkflow {
                 try {
                     java.util.function.Supplier<SupplierCancelResult> call = () ->
                         supplier.cancel(CancelCommand.of(repository.reservationId(job), job.supplierCode()));
-                    if (observations == null) return call.get();
                     return Observation.createNotStarted("transfer.cancellation.supplier", observations)
                         .parentObservation(parent)
                         .lowCardinalityKeyValue("supplier", job.supplierCode())

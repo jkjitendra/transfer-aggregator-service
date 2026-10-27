@@ -16,11 +16,11 @@ info:
     The roles claim supports CUSTOMER, SUPPORT, and OPERATOR. Business requests also require an
     enabled tenant claim. X-Tenant-Id is optional and must match the JWT tenant when supplied.
     Customer and operator roles can write business requests; support can read. Support and operator
-    can read admin alerts; only operator can trigger checks. Simulation routes exist only in the demo profile.
+    can read admin alerts; only operators can trigger checks.
 
     ## Rate Limits
-    - Search: 80 permits/minute per supplier; Redis-backed across replicas outside demo
-    - Poll: 25 requests/minute per search ID; Redis-backed across replicas outside demo
+    - Search: 80 permits/minute per supplier; Redis-backed across replicas
+    - Poll: 25 requests/minute per search ID; Redis-backed across replicas
     - Booking: no dedicated request rate limit
   version: 1.0.0
   contact:
@@ -29,7 +29,7 @@ info:
 
 servers:
   - url: http://localhost:8080
-    description: Local server (demo profile or authenticated configuration)
+    description: Local authenticated server
 
 security:
   - bearerAuth: []
@@ -51,7 +51,7 @@ paths:
     get:
       tags: [Routes]
       summary: Estimate a driving route
-      description: Available when routing.osrm.enabled is true. Public demo routing is restricted to the demo profile; production should use a self-hosted OSRM instance.
+      description: Available when routing.osrm.enabled is true. Configure a private OSRM instance; the public OSRM server is not supported.
       operationId: estimateRoute
       parameters:
         - name: pickupLatitude
@@ -84,7 +84,6 @@ paths:
                   attribution: {type: string}
         '400': {description: Invalid coordinates}
         '404': {description: No driving route found}
-        '429': {description: Public demo rate limit exceeded}
         '503': {description: Routing backend unavailable}
   /api/v1/transfers/search:
     post:
@@ -318,10 +317,9 @@ paths:
       summary: Book a transfer
       description: |
         Books a transfer using an offer ID from a previous search.
-        Authenticated deployments require Idempotency-Key. PostgreSQL atomically claims the
+        Booking requires Idempotency-Key. PostgreSQL atomically claims the
         tenant, operation type, and key for seven days. Reuse with a different request is 409.
         A crash or ambiguous supplier result is UNKNOWN_OUTCOME and requires review.
-        The demo profile retains a local response cache.
       operationId: book
       parameters:
         - name: X-Request-Id
@@ -332,7 +330,7 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
-          description: Required outside demo; unique per intended booking request.
+          description: Required; unique per intended booking request.
           required: true
           schema:
             type: string
@@ -396,7 +394,7 @@ paths:
       tags:
         - Transfers
       summary: Cancel a booking
-      description: Outside demo, persists a cancellation job before returning 202. A leased worker processes it; ambiguous outcomes without verified safe retry enter manual review. Demo retains the local queue.
+      description: Persists a cancellation job before returning 202. A leased worker processes it; ambiguous outcomes without verified safe retry enter manual review.
       operationId: cancel
       parameters:
         - name: X-Request-Id
@@ -448,7 +446,7 @@ paths:
       tags:
         - Transfers
       summary: Get cancellation status
-      description: Outside demo, returns durable pending, succeeded, DLQ, unknown-outcome, or resolved state. Demo uses the local queue.
+      description: Returns durable pending, succeeded, DLQ, unknown-outcome, or resolved state.
       operationId: getCancelStatus
       parameters:
         - name: X-Request-Id
@@ -691,7 +689,7 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
-          description: Required outside demo for a supplier-supported change.
+          description: Required for a supplier-supported change.
           required: true
           schema:
             type: string
@@ -744,7 +742,7 @@ paths:
     get:
       tags: [Transfers]
       summary: Get a tenant-owned durable operation status
-      description: Available outside demo for booking, change, and cancellation operations. Does not expose stored passenger data.
+      description: Available for booking, change, and cancellation operations. Does not expose stored passenger data.
       operationId: getOperationStatus
       parameters:
         - name: operationId
@@ -915,7 +913,7 @@ paths:
       tags:
         - AdminAlerts
       summary: Get cancellation DLQ size and alert threshold status
-      description: SUPPORT or OPERATOR. Reads PostgreSQL dead letters outside demo; reads a simulated counter in demo.
+      description: SUPPORT or OPERATOR. Reads PostgreSQL dead letters.
       operationId: getDlqStatus
       responses:
         '200':
@@ -924,20 +922,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AlertStatus'
-    delete:
-      tags:
-        - AdminAlerts
-      summary: Clear simulated DLQ counter
-      description: Demo profile only. Resets the ErrorMetrics counter; cancellation DLQ items are not removed.
-      operationId: clearDlq
-      responses:
-        '200':
-          description: Simulated DLQ counter cleared
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DlqClearResponse'
-
   /api/v1/admin/alerts/errors:
     get:
       tags:
@@ -951,29 +935,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMetricsResponse'
-
-  /api/v1/admin/alerts/dlq/simulate:
-    post:
-      tags:
-        - AdminAlerts
-      summary: Simulate adding items to DLQ
-      description: Demo profile only. Increments a simulated metric counter; it does not create CancellationDLQ items.
-      operationId: simulateDlqItems
-      parameters:
-        - name: count
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 1
-            minimum: 1
-      responses:
-        '200':
-          description: DLQ items simulated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DlqSimulateResponse'
 
   /api/v1/admin/alerts/check:
     post:
@@ -1534,7 +1495,7 @@ components:
 
     AlertStatus:
       type: object
-      description: PostgreSQL cancellation DLQ size outside demo; simulated ErrorMetrics counter in demo
+      description: PostgreSQL cancellation DLQ size
       properties:
         level:
           type: string
@@ -1556,22 +1517,6 @@ components:
         cancellationErrors:
           type: integer
         totalDlqSize:
-          type: integer
-
-    DlqSimulateResponse:
-      type: object
-      properties:
-        added:
-          type: integer
-        newSize:
-          type: integer
-
-    DlqClearResponse:
-      type: object
-      properties:
-        cleared:
-          type: integer
-        newSize:
           type: integer
 
     TriggerCheckResponse:

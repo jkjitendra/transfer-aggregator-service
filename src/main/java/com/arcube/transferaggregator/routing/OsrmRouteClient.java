@@ -1,11 +1,8 @@
 package com.arcube.transferaggregator.routing;
 
-import com.arcube.transferaggregator.exception.RateLimitExceededException;
 import com.arcube.transferaggregator.resilience.RetryHandler;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -13,7 +10,6 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicLong;
 
 /** Read-only route estimates; this API does not create transfer reservations. */
 @Service
@@ -23,13 +19,11 @@ public class OsrmRouteClient {
     private final OsrmProperties properties;
     private final RetryHandler retryHandler;
     private final String baseUrl;
-    private final boolean publicDemo;
-    private final AtomicLong nextPublicCall = new AtomicLong(Long.MIN_VALUE);
 
     public record RouteEstimate(long distanceMeters, long durationSeconds, String attribution) {}
 
     public OsrmRouteClient(WebClient.Builder builder, OsrmProperties properties,
-                           Environment environment, RetryHandler retryHandler) {
+                           RetryHandler retryHandler) {
         if (properties.getTimeout() == null || properties.getTimeout().isNegative()
                 || properties.getTimeout().isZero() || properties.getTimeout().toSeconds() > 10) {
             throw new IllegalStateException("OSRM timeout must be between 1 ms and 10 seconds");
@@ -39,9 +33,8 @@ public class OsrmRouteClient {
                 || baseUrl.startsWith("http://127.0.0.1:"))) {
             throw new IllegalStateException("OSRM URL must use HTTPS or local HTTP");
         }
-        this.publicDemo = baseUrl.contains("router.project-osrm.org");
-        if (publicDemo && !environment.acceptsProfiles(Profiles.of("demo"))) {
-            throw new IllegalStateException("The public OSRM demo is allowed only in demo profile");
+        if ("router.project-osrm.org".equalsIgnoreCase(URI.create(baseUrl).getHost())) {
+            throw new IllegalStateException("The public OSRM server is not a supported runtime dependency");
         }
         this.properties = properties;
         this.retryHandler = retryHandler;
@@ -53,12 +46,10 @@ public class OsrmRouteClient {
                                   double dropoffLatitude, double dropoffLongitude) {
         validate(pickupLatitude, pickupLongitude);
         validate(dropoffLatitude, dropoffLongitude);
-        if (publicDemo) acquireDemoPermit();
         String coordinates = String.format(Locale.ROOT, "%.6f,%.6f;%.6f,%.6f",
             pickupLongitude, pickupLatitude, dropoffLongitude, dropoffLatitude);
         try {
             Instant deadline = Instant.now().plus(properties.getTimeout());
-            if (publicDemo) return fetchEstimate(coordinates, deadline);
             return retryHandler.executeReadWithinDeadline(
                 () -> fetchEstimate(coordinates, deadline), deadline, 2);
         } catch (RouteNotFoundException exception) {
@@ -95,11 +86,4 @@ public class OsrmRouteClient {
         }
     }
 
-    private void acquireDemoPermit() {
-        long now = System.nanoTime();
-        long next = nextPublicCall.get();
-        if (now < next || !nextPublicCall.compareAndSet(next, now + 1_000_000_000L)) {
-            throw new RateLimitExceededException("Public routing demo permits one request per second");
-        }
-    }
 }

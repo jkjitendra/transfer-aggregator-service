@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Bounded database snapshot so a Prometheus scrape never waits on PostgreSQL. */
 @Slf4j
 @Component
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class WorkflowQueueMetrics {
     private final JdbcTemplate jdbc;
     private final AtomicLong reviewDepth = new AtomicLong();

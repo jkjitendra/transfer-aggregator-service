@@ -5,15 +5,14 @@ import com.arcube.transferaggregator.workflow.CancellationRepository;
 import com.arcube.transferaggregator.config.AlertingConfig;
 import com.arcube.transferaggregator.observability.ErrorMetrics;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -22,14 +21,11 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AlertingService {
-    @Autowired(required = false)
-    private CancellationRepository durableCancellations;
-
+    private final Optional<CancellationRepository> durableCancellations;
     private final ErrorMetrics errorMetrics;
     private final AlertingConfig alertingConfig;
-    private final JavaMailSender mailSender;
+    private final Optional<JavaMailSender> mailSender;
 
     // Track last alert times to avoid spam
     private final AtomicReference<Instant> lastDlqAlert = new AtomicReference<>(Instant.EPOCH);
@@ -42,6 +38,18 @@ public class AlertingService {
     
     // Minimum interval between alerts (5 minutes)
     private static final long ALERT_COOLDOWN_SECONDS = 300;
+
+    public AlertingService(ErrorMetrics errorMetrics, AlertingConfig alertingConfig,
+                           Optional<JavaMailSender> mailSender,
+                           Optional<CancellationRepository> durableCancellations) {
+        this.errorMetrics = errorMetrics;
+        this.alertingConfig = alertingConfig;
+        this.mailSender = mailSender;
+        this.durableCancellations = durableCancellations;
+        if (alertingConfig.getEmail().isEnabled() && mailSender.isEmpty()) {
+            throw new IllegalStateException("Alert email requires SPRING_MAIL_HOST and a configured mail sender");
+        }
+    }
 
     @PostConstruct
     public void init() {
@@ -196,7 +204,7 @@ public class AlertingService {
                 message.setSubject(subject);
                 message.setText(body);
                 
-                mailSender.send(message);
+                mailSender.orElseThrow().send(message);
                 log.info("Alert email sent to: {}", alertingConfig.getEmail().getRecipients());
             } catch (Exception e) {
                 log.error("Failed to send alert email: {}", e.getClass().getSimpleName());
@@ -239,7 +247,7 @@ public class AlertingService {
     ) {}
 
     private int currentDlqSize() {
-        return durableCancellations == null ? errorMetrics.getTotalDlqSize()
-            : durableCancellations.activeDeadLetterCount();
+        return durableCancellations.map(CancellationRepository::activeDeadLetterCount)
+            .orElseGet(errorMetrics::getTotalDlqSize);
     }
 }

@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 /** Refuses a production startup that could only create synthetic reservations. */
 @Component
-@Profile("!demo & !test")
+@Profile("prod")
 @ConditionalOnProperty(name = "transfer.aggregator.require-live-supplier", havingValue = "true", matchIfMissing = true)
 public class LiveSupplierReadinessGuard {
     private final SupplierRegistry registry;

@@ -18,7 +18,7 @@ import java.util.Optional;
  */
 @Slf4j
 @Component
-@Profile("demo | test")
+@Profile("test")
 @RequiredArgsConstructor
 public class CancellationWorker {
     

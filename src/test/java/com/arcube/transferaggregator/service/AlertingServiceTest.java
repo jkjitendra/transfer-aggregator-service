@@ -10,11 +10,26 @@ import org.springframework.mail.javamail.JavaMailSender;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class AlertingServiceTest {
+
+    @Test
+    void requiresMailSenderOnlyWhenEmailAlertsAreEnabled() {
+        ErrorMetrics metrics = new ErrorMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        AlertingConfig config = new AlertingConfig();
+
+        new AlertingService(metrics, config, Optional.empty(), Optional.empty());
+
+        config.getEmail().setEnabled(true);
+        assertThatThrownBy(() -> new AlertingService(metrics, config, Optional.empty(), Optional.empty()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("SPRING_MAIL_HOST");
+    }
 
     @Test
     void sendsDlqAlertWhenThresholdExceeded() throws Exception {
@@ -32,7 +47,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
         service.checkAlerts();
 
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
@@ -55,7 +70,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         setAtomicInstant(service, "lastDlqAlert", Instant.now());
         service.checkAlerts();
@@ -80,7 +95,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
         service.checkAlerts();
 
         verify(mailSender).send(any(SimpleMailMessage.class));
@@ -103,7 +118,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         setPrivate(service, "lastCheckTime", Instant.now().minusSeconds(60));
         setPrivate(service, "previousSearchErrors", 0.0);
@@ -128,7 +143,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         setAtomicInstant(service, "lastErrorAlert", Instant.now());
         setPrivate(service, "lastCheckTime", Instant.now().minusSeconds(60));
@@ -154,7 +169,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         service.checkAlerts();
         verifyNoInteractions(mailSender);
@@ -175,7 +190,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         service.checkAlerts();
         verifyNoInteractions(mailSender);
@@ -198,7 +213,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         setPrivate(service, "lastCheckTime", Instant.now().minusSeconds(60));
         setPrivate(service, "previousSearchErrors", 0.0);
@@ -223,7 +238,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         setPrivate(service, "lastCheckTime", Instant.now().minusSeconds(60));
         setPrivate(service, "previousSearchErrors", 0.0);
@@ -244,7 +259,7 @@ class AlertingServiceTest {
         config.setDlqCriticalThreshold(2);
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         AlertingService.AlertStatus ok = service.getDlqStatus();
         assertThat(ok.level()).isEqualTo(AlertingService.AlertLevel.OK);
@@ -273,7 +288,7 @@ class AlertingServiceTest {
         config.getEmail().setSubjectPrefix("[Test]");
 
         JavaMailSender mailSender = mock(JavaMailSender.class);
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
 
         service.checkAlerts();
         verifyNoInteractions(mailSender);
@@ -296,7 +311,7 @@ class AlertingServiceTest {
         JavaMailSender mailSender = mock(JavaMailSender.class);
         doThrow(new RuntimeException("mail down")).when(mailSender).send(any(SimpleMailMessage.class));
 
-        AlertingService service = new AlertingService(metrics, config, mailSender);
+        AlertingService service = new AlertingService(metrics, config, Optional.of(mailSender), Optional.empty());
         service.checkAlerts();
 
         verify(mailSender).send(any(SimpleMailMessage.class));

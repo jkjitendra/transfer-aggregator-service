@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Human-readable console for development -->
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [request=%X{requestId} trace=%X{traceId} operation=%X{operationId}] %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
-    
-    <!-- Use JSON in production, CONSOLE in development -->
-    <springProfile name="prod,production">
+    <!-- Use JSON in production and human-readable output elsewhere. -->
+    <springProfile name="prod">
         <!-- Structured stdout for collection by the deployment platform. -->
         <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
@@ -29,12 +22,16 @@
         </root>
     </springProfile>
     
-    <springProfile name="default,dev,development,local,demo,test">
+    <springProfile name="!prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [request=%X{requestId} trace=%X{traceId} operation=%X{operationId}] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>
-        
-        <!-- Debug logging for our package -->
+
         <logger name="com.arcube.transferaggregator" level="DEBUG"/>
     </springProfile>
     

@@ -1,9 +1,9 @@
 package com.arcube.transferaggregator.config;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class TokenPropertiesTest {
     @Test
@@ -27,12 +27,18 @@ class TokenPropertiesTest {
     }
 
     @Test
-    void allowsDemoKeyOnlyInDemoProfile() {
+    void doesNotExposeSigningKeysInDiagnosticOutput() {
+        TokenProperties properties = new TokenProperties();
+        properties.setSecret("a-private-signing-key-that-must-not-appear");
+        properties.setPreviousKeys(java.util.Map.of("old", "another-private-signing-key"));
+
+        assertThat(properties.toString()).doesNotContain("a-private-signing-key", "another-private-signing-key");
+    }
+
+    @Test
+    void rejectsDemoKeyInEveryProfile() {
         TokenProperties properties = new TokenProperties();
         properties.setSecret("demo-only-key-do-not-use-in-production-1234567890");
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("demo");
-        properties.setEnvironment(environment);
-        properties.validate();
+        assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
 }

@@ -10,18 +10,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ApiSecurityPropertiesTest {
     @Test
     void refusesDisabledSecurityInProduction() {
-        ApiSecurityProperties properties = new ApiSecurityProperties();
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
-        properties.setEnvironment(environment);
+        ApiSecurityProperties properties = new ApiSecurityProperties(environment);
         properties.setEnabled(false);
         assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void requiresIssuerAudienceAndExplicitCorsOrigins() {
-        ApiSecurityProperties properties = new ApiSecurityProperties();
-        properties.setEnvironment(new MockEnvironment());
+        ApiSecurityProperties properties = new ApiSecurityProperties(new MockEnvironment());
         assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
         properties.setIssuerUri("https://issuer.example.test");
         properties.setAudience("transfer-api");
@@ -31,23 +29,33 @@ class ApiSecurityPropertiesTest {
 
     @Test
     void requiresHttpsIssuerInProduction() {
-        ApiSecurityProperties properties = new ApiSecurityProperties();
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
-        properties.setEnvironment(environment);
+        ApiSecurityProperties properties = new ApiSecurityProperties(environment);
         properties.setIssuerUri("http://issuer.example.test");
         properties.setAudience("transfer-api");
         assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void refusesCombinedDemoAndProductionProfiles() {
-        ApiSecurityProperties properties = new ApiSecurityProperties();
+    void requiresHttpsJwkEndpointInProduction() {
         MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("demo", "prod");
-        properties.setEnvironment(environment);
+        environment.setActiveProfiles("prod");
+        ApiSecurityProperties properties = new ApiSecurityProperties(environment);
         properties.setIssuerUri("https://issuer.example.test");
+        properties.setJwkSetUri("http://internal.example.test/keys");
         properties.setAudience("transfer-api");
+        assertThatThrownBy(properties::validate)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("JWK endpoint");
+    }
+
+    @Test
+    void refusesDisabledSecurityInLocalProfile() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("local");
+        ApiSecurityProperties properties = new ApiSecurityProperties(environment);
+        properties.setEnabled(false);
         assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
 }

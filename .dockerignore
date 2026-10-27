@@ -1,0 +1,11 @@
+.git
+.github
+.idea
+target
+logs
+docs
+observability
+deploy
+scripts
+*.md
+!.mvn/**

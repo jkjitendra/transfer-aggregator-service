@@ -5,7 +5,6 @@ import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.ActiveProfiles;
@@ -17,8 +16,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "management.tracing.sampling.probability=1.0")
-@AutoConfigureObservability
+@SpringBootTest(properties = {
+    "management.tracing.sampling.probability=1.0",
+    "security.api.enabled=false",
+    "security.token.secret=test-only-key-not-for-production-123456789012345",
+    "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+    "spring.flyway.enabled=false",
+    "management.otlp.metrics.export.enabled=false",
+    "transfer.aggregator.tenants.default.enabled=true"
+})
 @ActiveProfiles("test")
 class TracingPropagationTest {
     @Autowired WebClient.Builder builder;
@@ -42,7 +48,7 @@ class TracingPropagationTest {
         } finally {
             MDC.clear();
         }
-        assertThat(traceparent.get()).matches("00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]");
+        assertThat(traceparent.get()).matches("00-[0-9a-f]{32}-[0-9a-f]{16}-0[13]");
         assertThat(requestId.get()).isEqualTo("trace-test-123");
     }
 }

@@ -1,0 +1,119 @@
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_DB: transfer_aggregator
+      POSTGRES_USER: transfer_aggregator
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Generate deploy/local/.env first}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transfer_aggregator -d transfer_aggregator"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55435:5432"
+
+  redis:
+    image: redis:7.4.12-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Generate deploy/local/.env first}", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Generate deploy/local/.env first}
+    volumes:
+      - redis-data:/data
+    ports:
+      - "127.0.0.1:56379:6379"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--import-realm", "--hostname=http://localhost:8081", "--hostname-backchannel-dynamic=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: local-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Generate deploy/local/.env first}
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./keycloak/transfer-local-realm.json:/opt/keycloak/data/import/transfer-local-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.migration
+    image: transfer-aggregator-migrations:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["-connectRetries=30", "migrate"]
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/transfer_aggregator
+      FLYWAY_USER: transfer_aggregator
+      FLYWAY_PASSWORD: ${DATABASE_PASSWORD:?Generate deploy/local/.env first}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: transfer-aggregator:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment: &app-environment
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_FLYWAY_ENABLED: "false"
+      DATABASE_URL: jdbc:postgresql://postgres:5432/transfer_aggregator
+      DATABASE_USER: transfer_aggregator
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Generate deploy/local/.env first}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Generate deploy/local/.env first}
+      OIDC_ISSUER_URI: http://localhost:8081/realms/transfer-local
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/transfer-local/protocol/openid-connect/certs
+      OIDC_AUDIENCE: transfer-api
+      TOKEN_SECRET: ${TOKEN_SECRET:?Generate deploy/local/.env first}
+      WORKFLOW_ENCRYPTION_KEY: ${WORKFLOW_ENCRYPTION_KEY:?Generate deploy/local/.env first}
+      ROUTING_ENABLED: "false"
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  app-second:
+    profiles: ["replicas"]
+    image: transfer-aggregator:local
+    depends_on:
+      app:
+        condition: service_started
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:8082:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  localstack:
+    profiles: ["aws"]
+    image: localstack/localstack:4.14.0
+    environment:
+      SERVICES: s3,sqs,secretsmanager
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+
+volumes:
+  postgres-data:
+  redis-data:
+  keycloak-data:
+  localstack-data:

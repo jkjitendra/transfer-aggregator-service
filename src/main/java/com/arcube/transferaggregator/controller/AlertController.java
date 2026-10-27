@@ -10,9 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Admin endpoints for alerting and metrics monitoring.
@@ -25,8 +25,7 @@ public class AlertController {
 
     private final AlertingService alertingService;
     private final ErrorMetrics errorMetrics;
-    @Autowired(required = false)
-    private CancellationRepository durableCancellations;
+    private final Optional<CancellationRepository> durableCancellations;
 
     /**
      * Get current DLQ status.
@@ -47,8 +46,8 @@ public class AlertController {
             "searchErrors", errorMetrics.getSearchErrorCount(),
             "bookingErrors", errorMetrics.getBookingErrorCount(),
             "cancellationErrors", errorMetrics.getCancellationErrorCount(),
-            "totalDlqSize", durableCancellations == null
-                ? errorMetrics.getTotalDlqSize() : durableCancellations.activeDeadLetterCount()
+            "totalDlqSize", durableCancellations.map(CancellationRepository::activeDeadLetterCount)
+                .orElseGet(errorMetrics::getTotalDlqSize)
         ));
     }
 
@@ -59,7 +58,7 @@ public class AlertController {
     @PostMapping("/check")
     public ResponseEntity<Map<String, Object>> triggerCheck() {
         Authentication actor = SecurityContextHolder.getContext().getAuthentication();
-        log.info("AUDIT action=alert_check actor={}", actor == null ? "demo" : actor.getName());
+        log.info("AUDIT action=alert_check actor={}", actor == null ? "system" : actor.getName());
         alertingService.checkAlerts();
         return ResponseEntity.ok(Map.of(
             "status", "check completed",

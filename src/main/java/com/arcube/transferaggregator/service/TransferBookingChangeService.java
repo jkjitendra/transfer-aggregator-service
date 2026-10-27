@@ -12,25 +12,39 @@ import com.arcube.transferaggregator.exception.SupplierNotFoundException;
 import com.arcube.transferaggregator.ports.*;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransferBookingChangeService {
 
     private final SupplierRegistry supplierRegistry;
     private final BookingIdCodec bookingIdCodec;
     private final OfferIdCodec offerIdCodec;
     private final AggregatorProperties properties;
-    @Autowired(required = false)
-    private DurableWriteCoordinator durableWrites;
+    private final DurableWriteCoordinator durableWrites;
+
+    @Autowired
+    public TransferBookingChangeService(SupplierRegistry supplierRegistry, BookingIdCodec bookingIdCodec,
+                                        OfferIdCodec offerIdCodec, AggregatorProperties properties,
+                                        Optional<DurableWriteCoordinator> durableWrites) {
+        this.supplierRegistry = supplierRegistry;
+        this.bookingIdCodec = bookingIdCodec;
+        this.offerIdCodec = offerIdCodec;
+        this.properties = properties;
+        this.durableWrites = durableWrites.orElse(null);
+    }
+
+    TransferBookingChangeService(SupplierRegistry supplierRegistry, BookingIdCodec bookingIdCodec,
+                                 OfferIdCodec offerIdCodec, AggregatorProperties properties) {
+        this(supplierRegistry, bookingIdCodec, offerIdCodec, properties, Optional.empty());
+    }
 
     /**
      * Step 1: Search for change options using supplier-native change search.

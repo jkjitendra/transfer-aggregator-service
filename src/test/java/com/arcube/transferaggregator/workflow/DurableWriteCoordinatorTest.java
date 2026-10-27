@@ -4,8 +4,10 @@ import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.domain.BookingStatus;
 import com.arcube.transferaggregator.dto.BookRequest;
 import com.arcube.transferaggregator.dto.BookResponse;
+import com.arcube.transferaggregator.observability.WorkflowMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import io.micrometer.observation.ObservationRegistry;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -25,7 +27,8 @@ class DurableWriteCoordinatorTest {
             "STUB", WorkflowRepository.sha256("request"), null, Instant.now(), Instant.now());
         when(repository.claim(eq("tenant-a"), eq("BOOKING"), eq("client-key"), anyString(), eq("STUB")))
             .thenReturn(new WorkflowRepository.Claim(operation, true));
-        DurableWriteCoordinator coordinator = new DurableWriteCoordinator(repository, new ObjectMapper());
+        DurableWriteCoordinator coordinator = new DurableWriteCoordinator(repository, new ObjectMapper(),
+            mock(WorkflowMetrics.class), ObservationRegistry.NOOP);
         AtomicInteger calls = new AtomicInteger();
         TenantContext.setTenantId("tenant-a");
         try {

@@ -3,12 +3,12 @@ package com.arcube.transferaggregator.resilience;
 import lombok.extern.slf4j.Slf4j;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -18,8 +18,11 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 public class RetryHandler {
-    @Autowired(required = false)
-    private MeterRegistry meters;
+    private final Optional<MeterRegistry> meters;
+
+    public RetryHandler(Optional<MeterRegistry> meters) {
+        this.meters = meters;
+    }
     
     private static final int DEFAULT_MAX_RETRIES = 2;
     private static final long INITIAL_BACKOFF_MS = 100;
@@ -126,7 +129,7 @@ public class RetryHandler {
     }
 
     private void recordRetry(String operation) {
-        if (meters != null) Counter.builder("transfer.retry.attempts")
-            .tag("operation", operation).register(meters).increment();
+        meters.ifPresent(registry -> Counter.builder("transfer.retry.attempts")
+            .tag("operation", operation).register(registry).increment());
     }
 }

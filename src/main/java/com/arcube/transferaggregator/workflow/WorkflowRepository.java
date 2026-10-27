@@ -2,7 +2,6 @@ package com.arcube.transferaggregator.workflow;
 
 import com.arcube.transferaggregator.observability.WorkflowMetrics;
 import com.arcube.transferaggregator.observability.StorageTelemetry;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -27,24 +26,25 @@ import java.util.UUID;
 
 /** PostgreSQL source of truth for write operations and idempotency claims. */
 @Repository
-@Profile("!demo & !test")
+@Profile("local | prod")
 public class WorkflowRepository {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final EnvelopeCrypto crypto;
     private final int idempotencyDays;
     private final int operationDays;
-    @Autowired(required = false)
-    private WorkflowMetrics metrics;
-    @Autowired(required = false)
-    private StorageTelemetry storageTelemetry;
+    private final WorkflowMetrics metrics;
+    private final StorageTelemetry storageTelemetry;
 
     public WorkflowRepository(JdbcTemplate jdbc, TransactionTemplate transactions, EnvelopeCrypto crypto,
                               @Value("${workflow.idempotency-retention-days:7}") int idempotencyDays,
-                              @Value("${workflow.operation-retention-days:90}") int operationDays) {
+                              @Value("${workflow.operation-retention-days:90}") int operationDays,
+                              WorkflowMetrics metrics, StorageTelemetry storageTelemetry) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.crypto = crypto;
+        this.metrics = metrics;
+        this.storageTelemetry = storageTelemetry;
         if (idempotencyDays < 1 || operationDays < idempotencyDays) {
             throw new IllegalStateException("Workflow retention must keep operations at least as long as idempotency records");
         }
@@ -86,7 +86,7 @@ public class WorkflowRepository {
                 tenantId, kind, keyHash, fingerprint, candidate, Timestamp.from(expiry));
             if (claimed == 1) {
                 audit(candidate, tenantId, "system", "CLAIMED", kind);
-                if (metrics != null) metrics.claim(kind, "acquired");
+                metrics.claim(kind, "acquired");
                 return new Claim(get(candidate).orElseThrow(), true);
             }
             jdbc.update("DELETE FROM operations WHERE id=?", candidate);
@@ -94,22 +94,20 @@ public class WorkflowRepository {
                     "ON i.operation_id=o.id WHERE i.tenant_id=? AND i.operation_kind=? AND i.key_hash=?",
                 this::mapOperation, tenantId, kind, keyHash);
             if (existing == null || !fingerprint.equals(existing.fingerprint())) {
-                if (metrics != null) metrics.claim(kind, "conflict");
+                metrics.claim(kind, "conflict");
                 throw new IdempotencyConflictException();
             }
-            if (metrics != null) metrics.claim(kind, "replay");
+            metrics.claim(kind, "replay");
             return new Claim(existing, false);
         });
-        return storageTelemetry == null ? transaction.get()
-            : storageTelemetry.observe("postgres", "claim", transaction);
+        return storageTelemetry.observe("postgres", "claim", transaction);
     }
 
     public Optional<Operation> get(UUID id) {
         try {
             java.util.function.Supplier<Operation> query = () -> jdbc.queryForObject(
                 "SELECT * FROM operations WHERE id=?", this::mapOperation, id);
-            return Optional.ofNullable(storageTelemetry == null ? query.get()
-                : storageTelemetry.observe("postgres", "get_operation", query));
+            return Optional.ofNullable(storageTelemetry.observe("postgres", "get_operation", query));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -193,8 +191,7 @@ public class WorkflowRepository {
             operationId, tenantId, actorReference, action, detailCode,
             traceId != null && traceId.matches("[0-9a-f]{32}") ? traceId : null,
             requestId != null && requestId.matches("[A-Za-z0-9._-]{1,64}") ? requestId : null);
-        if (storageTelemetry == null) insert.run();
-        else storageTelemetry.observe("postgres", "audit", insert);
+        storageTelemetry.observe("postgres", "audit", insert);
     }
 
     private String publicDetail(String code) {

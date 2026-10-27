@@ -9,7 +9,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -17,6 +16,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.Objects;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,12 +32,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RateLimiter {
     private static final DefaultRedisScript<Long> INCREMENT_WITH_TTL = new DefaultRedisScript<>(
         "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],60) end; return n", Long.class);
-    @Autowired(required = false)
-    private StringRedisTemplate redis;
-    @Autowired(required = false)
-    private Environment environment;
-    @Autowired(required = false)
-    private StorageTelemetry storageTelemetry;
+    private final StringRedisTemplate redis;
+    private final Environment environment;
+    private final StorageTelemetry storageTelemetry;
     
     private final int searchRateLimit;
     private final int pollRateLimit;
@@ -46,7 +43,11 @@ public class RateLimiter {
     private final Cache<String, AtomicInteger> searchCounters;
     private final Cache<String, AtomicInteger> pollCounters;
     
-    public RateLimiter(AggregatorProperties properties) {
+    public RateLimiter(AggregatorProperties properties, Optional<StringRedisTemplate> redis,
+                       Environment environment, Optional<StorageTelemetry> storageTelemetry) {
+        this.redis = redis.orElse(null);
+        this.environment = environment;
+        this.storageTelemetry = storageTelemetry.orElse(null);
         this.searchRateLimit = properties.getResilience().getSearchRateLimitPerMinute();
         this.pollRateLimit = properties.getResilience().getPollRateLimitPerMinute();
         
@@ -116,8 +117,8 @@ public class RateLimiter {
     }
 
     private boolean distributed() {
-        return redis != null && environment != null
-            && !environment.acceptsProfiles(Profiles.of("demo", "test"));
+        return redis != null
+            && !environment.acceptsProfiles(Profiles.of("test"));
     }
 
     private void acquireDistributed(String kind, String identity, int limit) {

@@ -52,7 +52,8 @@ class SearchPollingServiceTest {
         when(ops.get("search:missing")).thenReturn(null);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> service.poll("missing", null, SearchSort.byPrice(), PageRequest.first()))
             .isInstanceOf(SearchStateNotFoundException.class);
@@ -67,7 +68,8 @@ class SearchPollingServiceTest {
         when(ops.get("search:expired")).thenReturn(null);
         when(ops.get("search-known:expired")).thenReturn("1");
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
         assertThatThrownBy(() -> service.poll("expired"))
             .isInstanceOf(SearchStateExpiredException.class);
     }
@@ -126,7 +128,8 @@ class SearchPollingServiceTest {
         tenant.setMaxResultsPerSupplier(1);
         when(config.getTenant(anyString())).thenReturn(tenant);
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, filterService, config);
+            Optional.of(slowSupplier), redis, mapper, filterService, config,
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s1", SearchFilter.builder().build(), SearchSort.byPrice(), PageRequest.first());
 
@@ -136,7 +139,7 @@ class SearchPollingServiceTest {
         assertThat(response.getSupplierStatuses().get("SLOW_STUB").getResultsCount()).isEqualTo(1);
 
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(ops).set(eq("search:s1"), jsonCaptor.capture(), any());
+        verify(ops).set(eq("search:s1"), jsonCaptor.capture(), any(java.time.Duration.class));
         assertThat(jsonCaptor.getValue()).contains("\"searchId\":\"s1\"");
         assertThat(jsonCaptor.getValue()).doesNotContain("offer-2");
     }
@@ -150,7 +153,8 @@ class SearchPollingServiceTest {
         when(redis.opsForValue()).thenReturn(ops);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = SearchResponse.builder()
             .searchId("s-cache")
@@ -160,17 +164,18 @@ class SearchPollingServiceTest {
             .build();
 
         service.cacheSearchState("s-cache", response, Map.of("S1", "sid-1"));
-        verify(ops).set(eq("search:s-cache"), anyString(), any());
+        verify(ops).set(eq("search:s-cache"), anyString(), any(java.time.Duration.class));
 
         ObjectMapper failingMapper = mock(ObjectMapper.class);
         when(failingMapper.writeValueAsString(any()))
             .thenThrow(new JsonProcessingException("boom") {});
         SearchPollingService failingService = new SearchPollingService(
-            Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> failingService.cacheSearchState("s-cache", response, Map.of()))
             .isInstanceOf(SearchStateUnavailableException.class);
-        verify(ops, times(1)).set(eq("search:s-cache"), anyString(), any());
+        verify(ops, times(1)).set(eq("search:s-cache"), anyString(), any(java.time.Duration.class));
     }
 
     @Test
@@ -182,7 +187,8 @@ class SearchPollingServiceTest {
         when(ops.get("search:bad")).thenReturn("{not-json}");
 
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> service.poll("bad", null, SearchSort.byPrice(), PageRequest.first()))
             .isInstanceOf(SearchStateUnavailableException.class);
@@ -207,7 +213,8 @@ class SearchPollingServiceTest {
 
         var slowSupplier = mock(com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClient.class);
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s2", null, SearchSort.byPrice(), PageRequest.first());
         assertThat(response.isIncomplete()).isFalse();
@@ -233,7 +240,8 @@ class SearchPollingServiceTest {
 
         var slowSupplier = mock(com.arcube.transferaggregator.adapters.supplier.mock.SlowMockSupplierClient.class);
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s3", null, SearchSort.byPrice(), PageRequest.first());
         assertThat(response.isIncomplete()).isFalse();
@@ -273,7 +281,8 @@ class SearchPollingServiceTest {
         when(slowSupplier.poll("slow-2")).thenReturn(pollResult);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s4", null, SearchSort.byPrice(), PageRequest.first());
         assertThat(response.isIncomplete()).isTrue();
@@ -303,7 +312,8 @@ class SearchPollingServiceTest {
         when(slowSupplier.hasSearch("slow-missing")).thenReturn(false);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s6", null, SearchSort.byPrice(), PageRequest.first());
         assertThat(response.getOffers()).isEmpty();
@@ -343,7 +353,8 @@ class SearchPollingServiceTest {
         when(slowSupplier.poll("slow-3")).thenReturn(pollResult);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig());
+            Optional.of(slowSupplier), redis, mapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         SearchResponse response = service.poll("s7", null, SearchSort.byPrice(), PageRequest.first());
         assertThat(response.getOffers()).hasSize(1);
@@ -374,7 +385,8 @@ class SearchPollingServiceTest {
             .thenThrow(new JsonProcessingException("bad") {});
 
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, failingMapper, new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> service.poll("s5", null, SearchSort.byPrice(), PageRequest.first()))
             .isInstanceOf(SearchStateUnavailableException.class);
@@ -389,7 +401,8 @@ class SearchPollingServiceTest {
         when(ops.get("search:missing")).thenReturn(null);
 
         SearchPollingService service = new SearchPollingService(
-            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig());
+            Optional.empty(), redis, new ObjectMapper(), new OfferFilterService(), tenantConfig(),
+            Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> service.poll("missing"))
             .isInstanceOf(SearchStateNotFoundException.class);

@@ -3,6 +3,7 @@ package com.arcube.transferaggregator.resilience;
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,7 +12,7 @@ class RetryHandlerTest {
 
     @Test
     void readRetryStopsAtParentDeadline() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         AtomicInteger attempts = new AtomicInteger();
         assertThatThrownBy(() -> handler.executeReadWithinDeadline(() -> {
             attempts.incrementAndGet();
@@ -22,7 +23,7 @@ class RetryHandlerTest {
     
     @Test
     void shouldRetryOnTransientFailure() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
         
         String result = handler.executeWithRetry(() -> {
@@ -39,7 +40,7 @@ class RetryHandlerTest {
     
     @Test
     void shouldFailAfterMaxRetries() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         
         assertThatThrownBy(() -> handler.executeWithRetry(() -> {
             throw new RuntimeException("Connection refused");
@@ -50,7 +51,7 @@ class RetryHandlerTest {
     
     @Test
     void shouldNotRetryNonTransientErrors() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
         
         assertThatThrownBy(() -> handler.executeWithRetry(() -> {
@@ -64,7 +65,7 @@ class RetryHandlerTest {
 
     @Test
     void executeWithRetryUsesDefaultSettings() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
 
         String result = handler.executeWithRetry(() -> {
@@ -81,7 +82,7 @@ class RetryHandlerTest {
 
     @Test
     void treatsNullMessageAsNonRetryableByMessage() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
 
         assertThatThrownBy(() -> handler.executeWithRetry(() -> {
             throw new RuntimeException((String) null);
@@ -90,7 +91,7 @@ class RetryHandlerTest {
 
     @Test
     void retriesOnClassNameHints() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
 
         String result = handler.executeWithRetry(() -> {
@@ -106,7 +107,7 @@ class RetryHandlerTest {
 
     @Test
     void retriesOnMessageHints() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
 
         String result = handler.executeWithRetry(() -> {
@@ -122,7 +123,7 @@ class RetryHandlerTest {
 
     @Test
     void retriesOnMessage502() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
 
         String result = handler.executeWithRetry(() -> {
@@ -138,7 +139,7 @@ class RetryHandlerTest {
 
     @Test
     void retriesOnConnectAndIoExceptionNames() {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
         final int[] attempts = {0};
 
         String result = handler.executeWithRetry(() -> {
@@ -165,7 +166,7 @@ class RetryHandlerTest {
 
     @Test
     void sleepInterruptedThrowsRuntime() throws Exception {
-        RetryHandler handler = new RetryHandler();
+        RetryHandler handler = new RetryHandler(Optional.empty());
 
         Thread t = new Thread(() -> {
             Thread.currentThread().interrupt();
