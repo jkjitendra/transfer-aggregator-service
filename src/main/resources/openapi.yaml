@@ -8,14 +8,18 @@ info:
     - Search across multiple suppliers in parallel
     - Unified booking interface
     - Signed, stateless tokens for offers and bookings
-    - Idempotency support for booking operations
+    - Process-local, five-minute booking response cache for repeated Idempotency-Key values
 
     ## Authentication
-    No authentication required for API calls. Supplier credentials are managed server-side.
+    The current implementation does not authenticate API callers or authorize admin operations.
+    X-Tenant-Id is currently a caller-controlled header. Unknown tenant IDs fall back to an
+    unrestricted default, and configured tenant enabled/currency/result-limit fields are not enforced.
+    Do not expose this API to production traffic.
 
     ## Rate Limits
-    - Search: 80 requests/minute
-    - Booking: 50 requests/minute
+    - Search: 80 permits/minute per supplier, per service instance
+    - Poll: configured at 25 requests/minute per search ID, but not enforced by the current poll handler
+    - Booking: no dedicated request rate limit
   version: 1.0.0
   contact:
     name: Arcube Engineering
@@ -100,6 +104,8 @@ paths:
       description: |
         Poll search results for a given searchId.
         Supports filtering/sorting/pagination via query params (Mozio-aligned).
+        Incomplete aggregate search state is stored in Redis for 10 minutes.
+        An unknown or expired searchId currently returns HTTP 200 with an empty result.
       operationId: pollSearch
       parameters:
         - name: X-Request-Id
@@ -248,18 +254,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Search not found (if applicable in implementation)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '503':
           description: Service temporarily unavailable
           content:
@@ -272,7 +266,10 @@ paths:
       tags:
         - Transfers
       summary: Book a transfer
-      description: Books a transfer using an offer ID from a previous search
+      description: |
+        Books a transfer using an offer ID from a previous search.
+        A repeated Idempotency-Key can replay a response cached for five minutes in this process.
+        The cache is neither durable nor atomic and does not guarantee duplicate prevention.
       operationId: book
       parameters:
         - name: X-Request-Id
@@ -283,7 +280,7 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
-          description: Idempotency key to prevent duplicate bookings
+          description: Optional key for the process-local booking response cache; concurrent or cross-replica requests can still duplicate a booking.
           required: false
           schema:
             type: string
@@ -306,7 +303,7 @@ paths:
                 flightNumber: "123"
       responses:
         '200':
-          description: Booking successful or pending
+          description: Booking result, including CONFIRMED, PENDING, FAILED, or PRICE_CHANGED in the response body
           content:
             application/json:
               schema:
@@ -318,13 +315,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Offer not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Price changed or duplicate booking
+          description: Supplier code from the signed offer is not registered or enabled
           content:
             application/json:
               schema:
@@ -335,19 +326,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/transfers/bookings/{bookingId}:
     delete:
       tags:
         - Transfers
       summary: Cancel a booking
-      description: Cancels an existing booking
+      description: Attempts cancellation synchronously. Failures and timeouts are queued in memory for retry; queued work does not survive restart.
       operationId: cancel
       parameters:
         - name: X-Request-Id
@@ -364,7 +349,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Booking cancelled successfully
+          description: Cancellation result, including CANCELLED or PENDING in the response body
           content:
             application/json:
               schema:
@@ -376,13 +361,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Booking not found
+          description: Supplier code from the signed booking ID is not registered or enabled
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Cannot cancel - too late or already cancelled
+          description: Cancellation window has passed; already-cancelled supplier responses return 200
           content:
             application/json:
               schema:
@@ -393,7 +378,7 @@ paths:
       tags:
         - Transfers
       summary: Get cancellation status
-      description: Returns the latest cancel status for a booking.
+      description: Returns process-local pending or DLQ state. Otherwise returns status UNKNOWN, which can also mean a cancellation completed successfully.
       operationId: getCancelStatus
       parameters:
         - name: X-Request-Id
@@ -413,24 +398,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CancelResponse'
-        '400':
-          description: Invalid booking ID
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Booking not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/pricing:
     post:
@@ -631,19 +598,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Booking not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Change not allowed (policy/state restrictions)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many requests
+          description: Supplier code from the signed booking ID is not registered or enabled
           content:
             application/json:
               schema:
@@ -653,7 +608,8 @@ paths:
     post:
       tags:
         - BookingChanges
-      summary: Commit a booking change (cancel old + book new)
+      summary: Commit a supplier-supported booking change
+      description: Only adapters implementing ReservationChangeSupplier can commit. The Idempotency-Key header is currently ignored.
       operationId: commitBookingChange
       parameters:
         - name: X-Request-Id
@@ -663,6 +619,7 @@ paths:
             type: string
         - name: Idempotency-Key
           in: header
+          description: Accepted but not applied by the current booking-change service.
           required: false
           schema:
             type: string
@@ -679,7 +636,7 @@ paths:
               $ref: '#/components/schemas/BookingChangeCommitRequest'
       responses:
         '200':
-          description: Booking change committed successfully (or pending)
+          description: Change result, including SUCCESS, PENDING, or FAILED in the response body
           content:
             application/json:
               schema:
@@ -691,13 +648,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Booking not found or resultId not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Conflict (price changed, invalid state, duplicate change)
+          description: Supplier code from the signed booking ID is not registered or enabled
           content:
             application/json:
               schema:
@@ -708,18 +659,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/admin/alerts/dlq:
     get:
       tags:
         - AdminAlerts
-      summary: Get current DLQ status
+      summary: Get simulated DLQ counter status
+      description: Reads ErrorMetrics counters, not the CancellationDLQ item store. This route has no authentication in the current implementation.
       operationId: getDlqStatus
       responses:
         '200':
@@ -731,11 +677,12 @@ paths:
     delete:
       tags:
         - AdminAlerts
-      summary: Clear DLQ (simulate processing)
+      summary: Clear simulated DLQ counter
+      description: Resets the ErrorMetrics counter only; cancellation DLQ items are not removed. This route has no authentication in the current implementation.
       operationId: clearDlq
       responses:
         '200':
-          description: DLQ cleared successfully
+          description: Simulated DLQ counter cleared
           content:
             application/json:
               schema:
@@ -760,6 +707,7 @@ paths:
       tags:
         - AdminAlerts
       summary: Simulate adding items to DLQ
+      description: Increments a simulated metric counter; it does not create CancellationDLQ items. This route has no authentication in the current implementation.
       operationId: simulateDlqItems
       parameters:
         - name: count
@@ -925,7 +873,7 @@ components:
             $ref: '#/components/schemas/OfferDto'
         incomplete:
           type: boolean
-          description: True if some suppliers timed out
+          description: True if a supplier timed out, errored, was skipped by an open circuit, or still needs polling
         supplierStatuses:
           type: object
           additionalProperties:
@@ -1052,7 +1000,7 @@ components:
       properties:
         status:
           type: string
-          enum: [SUCCESS, ERROR, TIMEOUT]
+          enum: [SUCCESS, POLLING, ERROR, TIMEOUT, CIRCUIT_OPEN]
         resultsCount:
           type: integer
         errorMessage:
@@ -1097,7 +1045,7 @@ components:
           type: string
         status:
           type: string
-          enum: [PENDING, CONFIRMED, FAILED, CANCELLED, PRICE_CHANGED]
+          enum: [PENDING, FAILED, CANCELLED, UNKNOWN]
         refundAmount:
           $ref: '#/components/schemas/Money'
         refundedAt:
@@ -1234,16 +1182,27 @@ components:
           type: string
         status:
           type: string
-          description: Overall change status (implementation-defined)
-        message:
+          enum: [SUCCESS, PENDING, FAILED]
+        newConfirmationNumber:
           type: string
-        newBooking:
-          $ref: '#/components/schemas/BookResponse'
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
 
     AlertStatus:
       type: object
-      description: AlertingService.AlertStatus response (structure depends on implementation)
-      additionalProperties: true
+      description: Status of the simulated ErrorMetrics DLQ counter, not the cancellation DLQ
+      properties:
+        level:
+          type: string
+          enum: [OK, WARNING, CRITICAL]
+        currentValue:
+          type: integer
+        warningThreshold:
+          type: integer
+        criticalThreshold:
+          type: integer
 
     ErrorMetricsResponse:
       type: object
