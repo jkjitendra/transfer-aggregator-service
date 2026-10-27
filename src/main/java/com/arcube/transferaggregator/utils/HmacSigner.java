@@ -9,6 +9,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.MessageDigest;
 import java.util.Base64;
 
 /** Shared HMAC-SHA256 signing utility for token generation */
@@ -24,10 +25,32 @@ public class HmacSigner {
 
     /** Signs the given data using HMAC-SHA256 and returns a URL-safe Base64 encoded signature */
     public String sign(String data) {
+        return signWithKey(data, tokenProperties.getSecret());
+    }
+
+    public String activeKeyId() {
+        return tokenProperties.getActiveKeyId();
+    }
+
+    /** Verifies with the named active or previous key in constant time. */
+    public boolean verify(String data, String signature, String keyId) {
+        String key = keyId.equals(tokenProperties.getActiveKeyId())
+            ? tokenProperties.getSecret() : tokenProperties.getPreviousKeys().get(keyId);
+        if (key == null || signature == null) return false;
+        try {
+            byte[] provided = URL_DECODER.decode(signature);
+            byte[] expected = URL_DECODER.decode(signWithKey(data, key));
+            return MessageDigest.isEqual(expected, provided);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private String signWithKey(String data, String key) {
         try {
             Mac mac = createMac();
             mac.init(new SecretKeySpec(
-                tokenProperties.getSecret().getBytes(StandardCharsets.UTF_8), 
+                key.getBytes(StandardCharsets.UTF_8),
                 HMAC_ALG
             ));
             return URL_ENCODER.encodeToString(mac.doFinal(data.getBytes(StandardCharsets.UTF_8)));

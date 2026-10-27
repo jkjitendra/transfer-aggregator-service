@@ -1,0 +1,9 @@
+security:
+  api:
+    enabled: false
+  token:
+    secret: ${TOKEN_SECRET:demo-only-key-do-not-use-in-production-1234567890}
+
+transfer:
+  aggregator:
+    mode: stub

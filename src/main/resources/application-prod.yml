@@ -1,0 +1,18 @@
+security:
+  api:
+    enabled: true
+
+transfer:
+  aggregator:
+    mode: real
+    suppliers:
+      stub:
+        enabled: false
+      slow-stub:
+        enabled: false
+      skyride:
+        enabled: false
+
+logging:
+  level:
+    com.arcube.transferaggregator: INFO

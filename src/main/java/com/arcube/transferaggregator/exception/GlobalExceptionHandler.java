@@ -90,6 +90,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ErrorResponse.of(
             "INVALID_TOKEN", ex.getMessage(), null, MDC.get("requestId")));
     }
+
+    @ExceptionHandler(TenantAccessException.class)
+    public ResponseEntity<ErrorResponse> handleTenantAccess(TenantAccessException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ErrorResponse.of(
+            "TENANT_ACCESS_DENIED", "Tenant access denied", null, MDC.get("requestId")));
+    }
     
     @ExceptionHandler(SupplierNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleSupplierNotFound(SupplierNotFoundException ex) {

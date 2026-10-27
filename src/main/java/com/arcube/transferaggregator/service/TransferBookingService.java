@@ -2,6 +2,7 @@ package com.arcube.transferaggregator.service;
 
 import com.arcube.transferaggregator.adapters.idcodec.*;
 import com.arcube.transferaggregator.config.AggregatorProperties;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.domain.BookCommand;
 import com.arcube.transferaggregator.domain.BookingStatus;
 import com.arcube.transferaggregator.dto.BookRequest;
@@ -35,17 +36,19 @@ public class TransferBookingService {
     private final Cache<String, BookResponse> idempotencyCache;
     
     public BookResponse book(BookRequest request, String idempotencyKey) {
+        OfferPayload offerPayload = offerIdCodec.decode(request.getOfferId());
+        String tenantId = TenantContext.getTenantIdOrDefault("default");
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             idempotencyKey = generateIdempotencyKey(request);
         }
+        String scopedCacheKey = tenantId + ":" + idempotencyKey;
         
-        BookResponse cached = idempotencyCache.getIfPresent(idempotencyKey);
+        BookResponse cached = idempotencyCache.getIfPresent(scopedCacheKey);
         if (cached != null) {
             log.info("Returning cached response for idempotency key");
             return cached;
         }
         
-        OfferPayload offerPayload = offerIdCodec.decode(request.getOfferId());
         log.info("Booking: supplier={}, searchId={}", offerPayload.supplierCode(), offerPayload.searchId());
         
         TransferSupplier supplier = supplierRegistry.getSupplier(offerPayload.supplierCode())
@@ -58,7 +61,7 @@ public class TransferBookingService {
         BookResponse response = mapToResponse(result, offerPayload.supplierCode());
         
         if (result.status() != BookingStatus.PENDING) {
-            idempotencyCache.put(idempotencyKey, response);
+            idempotencyCache.put(scopedCacheKey, response);
         }
         
         log.info("Booking result: status={}", result.status());

@@ -38,8 +38,8 @@ public class CancellationDLQ {
         deadLetters.put(task.bookingId(), task);
         dlqCounter.increment();
         
-        log.error("DLQ: Cancellation failed after {} retries: bookingId={}, supplier={}, error={}", 
-            task.retryCount(), task.bookingId(), task.supplierCode(), task.lastError());
+        log.error("DLQ: Cancellation failed after {} retries: supplier={}",
+            task.retryCount(), task.supplierCode());
         
         // Todo: send alert here
         // alertService.sendCriticalAlert("Cancellation failed: " + task.bookingId());
@@ -54,7 +54,7 @@ public class CancellationDLQ {
     public void resolve(String bookingId) {
         CancellationTask removed = deadLetters.remove(bookingId);
         if (removed != null) {
-            log.info("DLQ: Resolved bookingId={}", bookingId);
+            log.info("DLQ: Cancellation resolved");
         }
     }
     

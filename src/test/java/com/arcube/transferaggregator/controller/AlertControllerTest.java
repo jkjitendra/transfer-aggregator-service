@@ -8,17 +8,21 @@ import com.arcube.transferaggregator.service.AlertingService.AlertStatus;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.ActiveProfiles;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(AlertController.class)
+@WebMvcTest({AlertController.class, AlertSimulationController.class})
+@AutoConfigureMockMvc(addFilters = false)
+@ActiveProfiles("demo")
 @Import(GlobalExceptionHandler.class)
 class AlertControllerTest {
 

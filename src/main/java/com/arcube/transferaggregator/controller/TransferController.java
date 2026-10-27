@@ -26,7 +26,7 @@ public class TransferController {
     public ResponseEntity<SearchResponse> search(
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @Valid @RequestBody SearchRequest request) {
-        log.info("Search: pickup={}, dropoff={}", request.getPickupLocation(), request.getDropoffLocation());
+        log.info("Search requested");
         return ResponseEntity.ok(searchService.search(request));
     }
     
@@ -95,7 +95,7 @@ public class TransferController {
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody BookRequest request) {
-        log.info("Book: offerId={}", request.getOfferId());
+        log.info("Booking requested");
         return ResponseEntity.ok(bookingService.book(request, idempotencyKey));
     }
     
@@ -103,7 +103,7 @@ public class TransferController {
     public ResponseEntity<CancelResponse> cancel(
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @PathVariable String bookingId) {
-        log.info("Cancel: bookingId={}", bookingId);
+        log.info("Cancellation requested");
         return ResponseEntity.ok(cancellationService.cancel(bookingId));
     }
     
@@ -111,7 +111,7 @@ public class TransferController {
     public ResponseEntity<CancelResponse> getCancelStatus(
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @PathVariable String bookingId) {
-        log.info("Check cancel status: bookingId={}", bookingId);
+        log.info("Cancellation status requested");
         return ResponseEntity.ok(cancellationService.getStatus(bookingId));
     }
     

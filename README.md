@@ -184,8 +184,8 @@ Adding a new supplier is straightforward:
 | **Retry with Backoff** | Automatic retries for transient failures with exponential backoff. |
 | **Async Cancellation Queue** | Failed or timed-out cancellations enter a process-local retry queue. |
 | **Dead Letter Queue (DLQ)** | Exhausted cancellation retries enter an in-memory DLQ, lost on restart. |
-| **Admin Alerting Endpoints** | Show simulated DLQ/error counters, simulate/clear those counters, and trigger alert checks. These endpoints are not authenticated and do not operate on real DLQ entries. |
-| **Multi-Tenancy** | Supplier filtering uses the caller-provided tenant ID. Configured tenant `enabled`, default currency, and result limit are not enforced; unknown IDs fall back to an unrestricted default. |
+| **Admin Alerting Endpoints** | Support and operator roles can read alert counters; only operators can trigger checks. Simulate/clear routes are registered only in the `demo` profile. Counters still do not operate on real DLQ entries. |
+| **Multi-Tenancy** | The validated JWT tenant claim selects an explicitly configured, enabled tenant. A conflicting `X-Tenant-Id` is rejected. Supplier filtering, default currency, and per-supplier result limits are enforced. |
 | **Health & Metrics** | Health probes at `/actuator/health`. Prometheus metrics for monitoring. |
 
 ---
@@ -214,10 +214,10 @@ cd transfer-aggregator-service
 ### Run Locally
 
 ```bash
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
-The service starts on **port 8080** with mock suppliers enabled by default.
+The demo profile starts on **port 8080** with mock suppliers and local-only API access. Without the demo profile, startup requires OIDC issuer/audience settings and a 32+ byte token secret. Do not expose the demo profile to external traffic.
 
 ### Run Tests
 
@@ -344,7 +344,14 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 
 | Key | Description |
 |-----|-------------|
-| `security.token.secret` | HMAC-SHA256 secret for signing offerId/bookingId tokens. **Change in production!** |
+| `security.api.enabled` | Require OIDC bearer tokens by default; may be disabled only in `demo` or `test` profiles. |
+| `security.api.issuer-uri` / `security.api.audience` | Trusted OIDC issuer and required JWT audience. Production issuer must use HTTPS. |
+| `security.api.roles-claim` / `security.api.tenant-claim` | JWT claims for `CUSTOMER`, `SUPPORT`, `OPERATOR` roles and tenant ID. |
+| `security.api.allowed-origins` | Explicit browser origins. Wildcards are rejected. |
+| `security.token.secret` | Required 32+ byte HMAC key. Missing, short, or retired demo secrets fail startup. |
+| `security.token.active-key-id` / `security.token.previous-keys` | Key ID for newly issued IDs and old keys retained only during rotation. |
+
+Authenticated business requests require a JWT with the configured issuer, audience, role, and an enabled `tenant_id` claim. `X-Tenant-Id` is optional and must match the claim if supplied. Customer and operator roles can write business requests; support can read them. Support and operator can read admin alert endpoints; only operators can trigger alert checks or access Prometheus metrics. API docs require support or operator. The health endpoint is public.
 
 ### Environment Variables
 
@@ -353,7 +360,11 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `AGGREGATOR_MODE` | `transfer.aggregator.mode` | No |
 | `MOZIO_ENABLED` | `transfer.aggregator.suppliers.mozio.enabled` | No |
 | `MOZIO_API_KEY` | `transfer.aggregator.suppliers.mozio.api-key` | For real Mozio calls |
-| `TOKEN_SECRET` | `security.token.secret` | In production |
+| `TOKEN_SECRET` | `security.token.secret` | Outside demo/test |
+| `TOKEN_ACTIVE_KEY_ID` | `security.token.active-key-id` | No |
+| `OIDC_ISSUER_URI` / `OIDC_AUDIENCE` | `security.api.issuer-uri` / `security.api.audience` | Outside demo/test |
+| `OIDC_TENANT_CLAIM` / `OIDC_ROLES_CLAIM` | JWT claim names | No |
+| `CORS_ALLOWED_ORIGINS` | `security.api.allowed-origins` | For browser clients |
 | `REDIS_HOST` | `spring.data.redis.host` | For distributed caching |
 | `ALERTING_ENABLED` | `transfer.aggregator.alerting.enabled` | No |
 
@@ -376,9 +387,9 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/search-changes` | Search booking alternatives |
 | `POST` | `/api/v1/transfers/bookings/{bookingId}/commit-change` | Commit booking change |
 | `GET` | `/api/v1/admin/alerts/dlq` | Get simulated DLQ metric counter status |
-| `DELETE` | `/api/v1/admin/alerts/dlq` | Clear simulated DLQ metric counter, not cancellation DLQ entries |
+| `DELETE` | `/api/v1/admin/alerts/dlq` | Demo profile only: clear simulated DLQ metric counter |
 | `GET` | `/api/v1/admin/alerts/errors` | Get error metrics |
-| `POST` | `/api/v1/admin/alerts/dlq/simulate` | Simulate DLQ items |
+| `POST` | `/api/v1/admin/alerts/dlq/simulate` | Demo profile only: simulate DLQ items |
 | `POST` | `/api/v1/admin/alerts/check` | Trigger alert check |
 | `GET` | `/actuator/health` | Health check |
 | `GET` | `/actuator/prometheus` | Prometheus metrics |
@@ -386,6 +397,8 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 ---
 
 ### Endpoint Details
+
+The `curl` examples below assume the local `demo` profile. For authenticated deployments, include `Authorization: Bearer <OIDC access token>`; the token must contain an enabled tenant claim for business requests.
 
 #### POST /api/v1/transfers/search
 
@@ -652,10 +665,10 @@ curl http://localhost:8080/api/v1/admin/alerts/dlq
 # Get error metrics
 curl http://localhost:8080/api/v1/admin/alerts/errors
 
-# Simulate DLQ items (testing)
+# Simulate DLQ items (demo profile only)
 curl -X POST "http://localhost:8080/api/v1/admin/alerts/dlq/simulate?count=5"
 
-# Clear simulated DLQ metric counter (does not resolve real cancellation tasks)
+# Clear simulated DLQ metric counter (demo profile only; does not resolve real tasks)
 curl -X DELETE http://localhost:8080/api/v1/admin/alerts/dlq
 
 # Trigger alert check
@@ -757,7 +770,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 - Airline B prefers European suppliers with EUR pricing
 - Premium partners want more results and access to all suppliers
 
-**Current implementation:** The search flow filters suppliers using `enabled-suppliers` from the caller-provided `X-Tenant-Id`. The configured default currency, maximum results, and tenant `enabled` flag are not applied. Unknown tenant IDs fall back to the unrestricted default configuration.
+**Current implementation:** The validated JWT selects an enabled tenant. Search filters suppliers using `enabled-suppliers`, applies the tenant's default currency when none is requested, and limits results per supplier. Unknown or disabled tenants and conflicting `X-Tenant-Id` headers are rejected.
 
 **Example:**
 ```yaml
@@ -787,7 +800,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 - **Manual alert triggers** — Force an alert check on-demand
 - **Configurable thresholds** — Warning and critical levels for DLQ size and error rates
 
-**Current value:** This demonstrates an alerting flow and optional email notifications for simulated counter thresholds. Access control, linkage to actual cancellation jobs, and operational runbooks remain to be built.
+**Current value:** This demonstrates an alerting flow and optional email notifications for simulated counter thresholds. Role-based access is enforced; linkage to actual cancellation jobs and operational runbooks remain to be built.
 
 ---
 
@@ -816,7 +829,7 @@ Tenant authentication, ownership checks, and enforcement of the remaining config
 | **Amenities API** | Get available amenities per offer |
 | **Booking Change Workflow** | Search alternatives and commit changes to existing bookings |
 | **Idempotency Support** | Process-local booking response cache; change header is currently ignored |
-| **Multi-Tenancy** | Caller-provided tenant ID filters suppliers; other tenant settings are not enforced |
+| **Multi-Tenancy** | JWT-bound tenant controls supplier filtering, default currency, result limits, and signed IDs |
 | **Circuit Breaker** | Resilience4j integration with per-supplier configuration |
 | **Rate Limiting** | Process-local per-supplier search limiter; poll limiter exists but is not wired to the poll endpoint |
 | **Bulkhead Pattern** | Concurrent call limiting |

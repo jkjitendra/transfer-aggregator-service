@@ -127,7 +127,7 @@ public class MozioSupplierAdapter implements TransferSupplier {
         } catch (MozioApiException e) {
             // Already cancelled - return success (idempotent)
             if (e.isAlreadyCanceled()) {
-                log.info("Reservation {} already cancelled", command.reservationId());
+                log.info("Reservation already cancelled");
                 return SupplierCancelResult.alreadyCancelled(SUPPLIER_CODE, command.reservationId());
             }
             // Too late to cancel

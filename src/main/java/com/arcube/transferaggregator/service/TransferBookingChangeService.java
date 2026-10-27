@@ -36,8 +36,7 @@ public class TransferBookingChangeService {
         // Decode original booking to get supplier info
         BookingPayload bookingPayload = bookingIdCodec.decode(request.getBookingId());
         String supplierCode = bookingPayload.supplierCode();
-        log.info("Searching changes for booking: supplier={}, reservationId={}", 
-            supplierCode, bookingPayload.reservationId());
+        log.info("Searching booking changes: supplier={}", supplierCode);
 
         TransferSupplier supplier = supplierRegistry.getSupplier(supplierCode)
             .orElseThrow(() -> new SupplierNotFoundException(supplierCode));
@@ -62,8 +61,7 @@ public class TransferBookingChangeService {
         BookingPayload oldBookingPayload = bookingIdCodec.decode(request.getOldBookingId());
         String supplierCode = oldBookingPayload.supplierCode();
         
-        log.info("Committing change: oldReservation={}, supplier={}", 
-            oldBookingPayload.reservationId(), supplierCode);
+        log.info("Committing booking change: supplier={}", supplierCode);
 
         TransferSupplier supplier = supplierRegistry.getSupplier(supplierCode)
             .orElseThrow(() -> new SupplierNotFoundException(supplierCode));
@@ -111,8 +109,7 @@ public class TransferBookingChangeService {
             .map(this::mapToOfferDto)
             .toList();
 
-        log.info("Found {} change options for reservation {}", 
-            offerDtos.size(), bookingPayload.reservationId());
+        log.info("Found {} booking change options", offerDtos.size());
 
         return SearchResponse.builder()
             .searchId(result.searchId())

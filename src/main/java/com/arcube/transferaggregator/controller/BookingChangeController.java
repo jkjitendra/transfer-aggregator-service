@@ -25,7 +25,7 @@ public class BookingChangeController {
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @PathVariable String bookingId,
             @Valid @RequestBody BookingChangeSearchRequest request) {
-        log.info("Search changes: bookingId={}", bookingId);
+        log.info("Booking change search requested");
         request.setBookingId(bookingId);
         return ResponseEntity.ok(bookingChangeService.searchForChange(request));
     }
@@ -40,7 +40,7 @@ public class BookingChangeController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @PathVariable String bookingId,
             @Valid @RequestBody BookingChangeCommitRequest request) {
-        log.info("Commit change: oldBookingId={}, newResultId={}", bookingId, request.getResultId());
+        log.info("Booking change commit requested");
         request.setOldBookingId(bookingId);
         return ResponseEntity.ok(bookingChangeService.commitChange(request, idempotencyKey));
     }
