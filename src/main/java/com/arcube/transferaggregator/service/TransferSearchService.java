@@ -15,8 +15,12 @@ import com.arcube.transferaggregator.resilience.RateLimiter;
 import com.arcube.transferaggregator.resilience.SupplierBulkhead;
 import com.arcube.transferaggregator.resilience.SupplierCircuitBreaker;
 import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
+import com.arcube.transferaggregator.observability.SupplierMetrics;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
@@ -37,8 +41,13 @@ public class TransferSearchService {
     private final SearchPollingService pollingService;
     private final SupplierCircuitBreaker circuitBreaker;
     private final TenantConfig tenantConfig;
+    @Autowired(required = false)
+    private SupplierMetrics supplierMetrics;
+    @Autowired(required = false)
+    private ObservationRegistry observations;
     
     public SearchResponse search(SearchRequest request) {
+        long searchStarted = System.nanoTime();
         var searchId = UUID.randomUUID().toString();
         var deadline = Instant.now().plusSeconds(properties.getGlobalTimeoutSeconds());
         
@@ -56,6 +65,7 @@ public class TransferSearchService {
             searchId, tenantId, suppliers.size(), bulkhead.availablePermits());
         
         if (suppliers.isEmpty()) {
+            recordRequest(true, searchStarted);
             return SearchResponse.builder()
                 .searchId(searchId).offers(List.of()).incomplete(true).supplierStatuses(Map.of())
                 .build();
@@ -66,6 +76,7 @@ public class TransferSearchService {
                 timedOut.put(supplier.getSupplierCode(), SupplierStatusDto.builder()
                     .status("TIMEOUT").errorMessage("Search deadline exceeded").build());
             }
+            recordRequest(true, searchStarted);
             return SearchResponse.builder().searchId(searchId).offers(List.of())
                 .incomplete(true).supplierStatuses(timedOut).build();
         }
@@ -73,8 +84,10 @@ public class TransferSearchService {
         // Fan out to suppliers in parallel with bulkhead and circuit breaker protection
         Map<String, Future<SupplierSearchResult>> futures = new LinkedHashMap<>();
         Map<String, Instant> supplierDeadlines = new HashMap<>();
+        Map<String, Long> supplierStarts = new HashMap<>();
         Set<String> deadlineSkipped = new HashSet<>();
         Map<String, String> requestContext = MDC.getCopyOfContextMap();
+        Observation parent = observations == null ? null : observations.getCurrentObservation();
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             for (TransferSupplier supplier : suppliers) {
@@ -93,17 +106,24 @@ public class TransferSearchService {
                 Duration timeout = SupplierOperationPolicy.timeout(properties, code,
                     SupplierOperationPolicy.Operation.SEARCH, Duration.between(Instant.now(), deadline));
                 supplierDeadlines.put(code, Instant.now().plus(timeout));
+                supplierStarts.put(code, System.nanoTime());
             
                 futures.put(code, executor.submit(() -> {
                     try {
                         if (requestContext != null) MDC.setContextMap(requestContext);
                         TenantContext.setTenantId(tenantId);
-                        rateLimiter.acquireSearchPermit(code);
-                        return circuitBreaker.execute(
-                            code,
-                            () -> bulkhead.execute(() -> supplier.search(command, timeout)),
-                            () -> { throw new IllegalStateException("Supplier circuit unavailable"); }
-                        );
+                        java.util.function.Supplier<SupplierSearchResult> call = () -> {
+                            rateLimiter.acquireSearchPermit(code);
+                            return circuitBreaker.execute(
+                                code,
+                                () -> bulkhead.execute(() -> supplier.search(command, timeout)),
+                                () -> { throw new IllegalStateException("Supplier circuit unavailable"); }
+                            );
+                        };
+                        if (observations == null) return call.get();
+                        return Observation.createNotStarted("transfer.supplier.search", observations)
+                            .parentObservation(parent).lowCardinalityKeyValue("supplier", code)
+                            .observe(call::get);
                     } finally {
                         TenantContext.clear();
                         MDC.clear();
@@ -188,6 +208,13 @@ public class TransferSearchService {
                     incomplete = true;
                 }
             }
+            if (supplierMetrics != null) {
+                for (var entry : statuses.entrySet()) {
+                    long began = supplierStarts.getOrDefault(entry.getKey(), searchStarted);
+                    supplierMetrics.recordSearchOutcome(entry.getKey(), entry.getValue().getStatus(),
+                        Duration.ofNanos(Math.max(0, System.nanoTime() - began)));
+                }
+            }
         
             log.info("Search {} complete: {} offers, incomplete={}", searchId, allOffers.size(), incomplete);
             SearchResponse response = SearchResponse.builder()
@@ -200,11 +227,20 @@ public class TransferSearchService {
             if (incomplete) {
                 pollingService.cacheSearchState(searchId, response, supplierSearchIds);
             }
+
+            recordRequest(incomplete, searchStarted);
         
             return response;
         } finally {
             futures.values().forEach(future -> { if (!future.isDone()) future.cancel(true); });
             executor.shutdownNow();
+        }
+    }
+
+    private void recordRequest(boolean partial, long started) {
+        if (supplierMetrics != null) {
+            supplierMetrics.recordSearchRequest(partial,
+                Duration.ofNanos(Math.max(0, System.nanoTime() - started)));
         }
     }
     

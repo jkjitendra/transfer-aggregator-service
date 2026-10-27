@@ -6,6 +6,8 @@ import com.arcube.transferaggregator.workflow.IdempotencyConflictException;
 import com.arcube.transferaggregator.workflow.WorkflowRepository;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
 import com.arcube.transferaggregator.workflow.DurableCancellationWorkflow;
+import com.arcube.transferaggregator.observability.WorkflowQueueMetrics;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.adapters.idcodec.BookingPayload;
 import com.arcube.transferaggregator.dto.BookRequest;
@@ -29,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.MDC;
 
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +75,8 @@ class DurableWorkflowDatabaseIT {
     @Autowired EnvelopeCrypto crypto;
     @Autowired ObjectMapper mapper;
     @Autowired DurableWriteCoordinator coordinator;
+    @Autowired WorkflowQueueMetrics queueMetrics;
+    @Autowired MeterRegistry meters;
     @MockBean JwtDecoder decoder;
 
     @Test
@@ -95,6 +100,20 @@ class DurableWorkflowDatabaseIT {
             .isInstanceOf(IdempotencyConflictException.class);
         workflows.complete(restartOperation, "tenant-a", "CONFIRMED", "{\"status\":\"CONFIRMED\"}");
         assertThat(workflows.getForTenant(restartOperation, "tenant-b")).isEmpty();
+        MDC.put("traceId", "a".repeat(32));
+        MDC.put("requestId", "request-123");
+        try {
+            workflows.audit(restartOperation, "tenant-a", "system", "REVIEWED",
+                "EVIDENCE_RECORDED:private-ticket-ref");
+        } finally {
+            MDC.clear();
+        }
+        assertThat(workflows.timeline(restartOperation, 100)).anySatisfy(event -> {
+            assertThat(event.action()).isEqualTo("REVIEWED");
+            assertThat(event.detailCode()).isEqualTo("EVIDENCE_RECORDED");
+            assertThat(event.traceId()).isEqualTo("a".repeat(32));
+            assertThat(event.requestId()).isEqualTo("request-123");
+        });
     }
 
     @Test
@@ -123,8 +142,14 @@ class DurableWorkflowDatabaseIT {
             .filter(job -> job.id().equals(created.id())).findFirst().orElseThrow();
         cancellations.failedAttempt(secondClaim, true, true, 3, "PERMANENT");
         assertThat(cancellations.deadLetters(100)).anyMatch(letter -> letter.jobId().equals(created.id()));
+        queueMetrics.refresh();
+        assertThat(meters.get("transfer.cancellation.dlq.depth").gauge().value()).isGreaterThanOrEqualTo(1);
         assertThat(cancellations.replay(created.id(), "operator", "ticket-1234")).isTrue();
         assertThat(cancellations.deadLetters(100)).noneMatch(letter -> letter.jobId().equals(created.id()));
+        assertThat(workflows.timeline(created.operationId(), 100))
+            .anyMatch(event -> "DLQ_REPLAY".equals(event.action()));
+        queueMetrics.refresh();
+        assertThat(meters.get("transfer.workflow.snapshot.healthy").gauge().value()).isEqualTo(1);
     }
 
     @Test

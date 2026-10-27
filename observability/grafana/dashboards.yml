@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: Transfer Aggregator
+    orgId: 1
+    folder: Transfer Aggregator
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards

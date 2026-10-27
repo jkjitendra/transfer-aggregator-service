@@ -1,6 +1,9 @@
 package com.arcube.transferaggregator.resilience;
 
 import lombok.extern.slf4j.Slf4j;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -15,6 +18,8 @@ import java.util.function.Supplier;
 @Slf4j
 @Component
 public class RetryHandler {
+    @Autowired(required = false)
+    private MeterRegistry meters;
     
     private static final int DEFAULT_MAX_RETRIES = 2;
     private static final long INITIAL_BACKOFF_MS = 100;
@@ -47,8 +52,9 @@ public class RetryHandler {
                 }
                 
                 if (attempt < maxRetries) {
+                    recordRetry("legacy");
                     log.warn("Transient failure (attempt {}), retrying in {}ms: {}", 
-                        attempt + 1, backoffMs, e.getMessage());
+                        attempt + 1, backoffMs, e.getClass().getSimpleName());
                     sleep(backoffMs);
                     backoffMs = (long) (backoffMs * BACKOFF_MULTIPLIER);
                 }
@@ -85,6 +91,7 @@ public class RetryHandler {
                 if (remainingMs <= 0) throw exception;
                 long delayMs = Math.min(100L << attempt, remainingMs);
                 attempt++;
+                recordRetry("read");
                 sleep(delayMs);
             }
         }
@@ -116,5 +123,10 @@ public class RetryHandler {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Retry interrupted", e);
         }
+    }
+
+    private void recordRetry(String operation) {
+        if (meters != null) Counter.builder("transfer.retry.attempts")
+            .tag("operation", operation).register(meters).increment();
     }
 }

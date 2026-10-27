@@ -47,6 +47,20 @@ public class DurableOperationsController {
             .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/api/v1/operations/{operationId}/timeline")
+    public ResponseEntity<List<WorkflowRepository.AuditEvent>> timeline(@PathVariable UUID operationId) {
+        return operations.getForTenant(operationId, TenantContext.getTenantId())
+            .map(operation -> ResponseEntity.ok(operations.timeline(operationId, 100)))
+            .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/api/v1/admin/operations/{operationId}/timeline")
+    public ResponseEntity<List<WorkflowRepository.AuditEvent>> adminTimeline(@PathVariable UUID operationId) {
+        return operations.get(operationId)
+            .map(operation -> ResponseEntity.ok(operations.timeline(operationId, 100)))
+            .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/api/v1/admin/operations/review")
     public List<OperationView> reviewQueue(@RequestParam(defaultValue = "50") int limit) {
         return operations.reviewQueue(limit).stream().map(OperationView::from).toList();
@@ -60,7 +74,7 @@ public class DurableOperationsController {
             throw new IllegalArgumentException("Review decision must be FAILED or MANUAL_REVIEW");
         }
         boolean changed = operations.review(operationId, request.decision(), actor.getName(),
-            "EVIDENCE_RECORDED:" + request.evidenceReference());
+            "EVIDENCE_RECORDED:" + WorkflowRepository.sha256(request.evidenceReference()));
         return changed ? ResponseEntity.ok().build() : ResponseEntity.status(409).build();
     }
 

@@ -778,6 +778,49 @@ paths:
                 items:
                   $ref: '#/components/schemas/OperationView'
 
+  /api/v1/operations/{operationId}/timeline:
+    get:
+      tags: [Transfers]
+      summary: View sanitized timeline for a tenant-owned operation
+      description: Returns at most 100 durable events. Trace IDs may be absent when no span was sampled.
+      operationId: getOperationTimeline
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Ordered operation events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/OperationAuditEvent'}
+        '404':
+          description: Operation not found for this tenant
+
+  /api/v1/admin/operations/{operationId}/timeline:
+    get:
+      tags: [AdminAlerts]
+      summary: View sanitized timeline for an operation under support review
+      operationId: getAdminOperationTimeline
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Ordered operation events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/OperationAuditEvent'}
+        '404':
+          description: Operation not found
+
   /api/v1/admin/operations/{operationId}/review:
     post:
       tags: [AdminAlerts]
@@ -973,6 +1016,25 @@ components:
           type: string
           format: date-time
         updatedAt:
+          type: string
+          format: date-time
+
+    OperationAuditEvent:
+      type: object
+      properties:
+        action:
+          type: string
+        detailCode:
+          type: string
+          description: Allowlisted state or reason code; other details are redacted.
+        traceId:
+          type: string
+          nullable: true
+          description: Sampled W3C trace identifier for finding the trace waterfall.
+        requestId:
+          type: string
+          nullable: true
+        createdAt:
           type: string
           format: date-time
 

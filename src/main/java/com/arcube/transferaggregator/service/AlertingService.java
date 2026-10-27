@@ -199,7 +199,7 @@ public class AlertingService {
                 mailSender.send(message);
                 log.info("Alert email sent to: {}", alertingConfig.getEmail().getRecipients());
             } catch (Exception e) {
-                log.error("Failed to send alert email: {}", e.getMessage());
+                log.error("Failed to send alert email: {}", e.getClass().getSimpleName());
             }
         }
     }

@@ -1,0 +1,96 @@
+{
+  "uid": "transfer-operations",
+  "title": "Transfer Aggregator Operations",
+  "tags": ["transfer", "operations"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "links": [
+    {"title": "Find trace in Tempo", "type": "link", "url": "/explore", "targetBlank": false}
+  ],
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "HTTP requests per second",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m]))", "legendFormat": "requests/s", "refId": "A"}]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "HTTP p95 latency",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{uri!~\"/actuator.*\"}[5m])))", "legendFormat": "p95", "refId": "A"}]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Partial search share",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}},
+      "targets": [{"expr": "sum(rate(transfer_request_search_duration_seconds_count{outcome=\"partial\"}[5m])) / clamp_min(sum(rate(transfer_request_search_duration_seconds_count[5m])), 0.001)", "legendFormat": "partial", "refId": "A"}]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Supplier search outcomes",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (supplier, outcome) (rate(transfer_supplier_search_duration_seconds_count[5m]))", "legendFormat": "{{supplier}} {{outcome}}", "refId": "A"}]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Idempotency claims and replays",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (kind, result) (rate(transfer_idempotency_claims_total[5m]))", "legendFormat": "{{kind}} {{result}}", "refId": "A"}]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Workflow write outcomes",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (kind, state) (rate(transfer_workflow_write_duration_seconds_count[5m]))", "legendFormat": "{{kind}} {{state}}", "refId": "A"}]
+    },
+    {
+      "id": 7, "type": "stat", "title": "Oldest pending cancellation",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{"expr": "transfer_cancellation_pending_oldest_seconds", "refId": "A"}]
+    },
+    {
+      "id": 8, "type": "stat", "title": "Pending cancellations",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "transfer_cancellation_pending_depth", "refId": "A"}]
+    },
+    {
+      "id": 9, "type": "stat", "title": "Dead letters",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "transfer_cancellation_dlq_depth or aggregator_dlq_size{queue=\"main\"}", "refId": "A"}]
+    },
+    {
+      "id": 10, "type": "stat", "title": "Unknown outcomes to review",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "transfer_workflow_review_depth", "refId": "A"}]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Retry attempts and worker claims",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(rate(transfer_retry_attempts_total[5m]))", "legendFormat": "read retries/s", "refId": "A"},
+        {"expr": "sum(rate(transfer_cancellation_worker_claims_total[5m]))", "legendFormat": "worker claims/s", "refId": "B"}
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Circuit state and bulkhead saturation",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "transfer_supplier_circuit_state", "legendFormat": "{{supplier}} circuit (0 closed, 1 half, 2 open)", "refId": "A"},
+        {"expr": "transfer_bulkhead_saturation", "legendFormat": "bulkhead saturation", "refId": "B"}
+      ]
+    }
+  ]
+}
