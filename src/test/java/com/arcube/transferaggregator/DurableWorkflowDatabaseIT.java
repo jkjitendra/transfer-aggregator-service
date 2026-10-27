@@ -20,6 +20,7 @@ import com.arcube.transferaggregator.ports.IdempotentCancellationSupplier;
 import com.arcube.transferaggregator.ports.SupplierCancelResult;
 import com.arcube.transferaggregator.ports.SupplierRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -83,12 +84,14 @@ class DurableWorkflowDatabaseIT {
     @Autowired DurableWriteCoordinator coordinator;
     @Autowired WorkflowQueueMetrics queueMetrics;
     @Autowired MeterRegistry meters;
+    @Autowired Flyway flyway;
     @MockitoBean JwtDecoder decoder;
 
     @Test
     @Order(1)
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     void atomicClaimAcrossConcurrentCallersSurvivesContextRestart() throws Exception {
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         String key = UUID.randomUUID().toString();
         String fingerprint = WorkflowRepository.sha256("request-a");
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
