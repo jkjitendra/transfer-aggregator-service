@@ -28,7 +28,7 @@ public class CancellationQueue {
     public void enqueue(CancellationTask task) {
         queue.offer(task);
         pendingCancellations.put(task.bookingId(), task);
-        log.info("Queued cancellation: bookingId={}, retry={}", task.bookingId(), task.retryCount());
+        log.info("Queued cancellation: retry={}", task.retryCount());
     }
     
     /** Get next task for processing */
@@ -41,7 +41,7 @@ public class CancellationQueue {
         CancellationTask updated = task.withRetry(task.lastError());
         queue.offer(updated);
         pendingCancellations.put(task.bookingId(), updated);
-        log.info("Re-queued cancellation: bookingId={}, retry={}", task.bookingId(), updated.retryCount());
+        log.info("Re-queued cancellation: retry={}", updated.retryCount());
     }
     
     /** Mark cancellation as completed (success or moved to DLQ) */

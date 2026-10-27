@@ -174,7 +174,7 @@ public class SlowMockSupplierClient implements TransferSupplier {
     
     @Override
     public SupplierCancelResult cancel(CancelCommand command) {
-        log.info("SLOW_STUB: Cancelling {}", command.reservationId());
+        log.info("SLOW_STUB: Cancelling reservation");
         sleep(300);
         return SupplierCancelResult.success(SUPPLIER_CODE, command.reservationId(), Money.of(54.99, "USD"));
     }

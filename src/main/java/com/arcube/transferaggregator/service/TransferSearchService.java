@@ -40,10 +40,11 @@ public class TransferSearchService {
     public SearchResponse search(SearchRequest request) {
         var searchId = UUID.randomUUID().toString();
         var deadline = Instant.now().plusSeconds(properties.getGlobalTimeoutSeconds());
-        var command = mapToCommand(request);
         
         // Get current tenant from context
         String tenantId = TenantContext.getTenantIdOrDefault(tenantConfig.getDefaultTenant());
+        var tenant = tenantConfig.getTenant(tenantId);
+        var command = mapToCommand(request, tenant);
         
         // Filter suppliers by tenant configuration
         List<TransferSupplier> suppliers = supplierRegistry.getEnabledSuppliers().stream()
@@ -75,14 +76,17 @@ public class TransferSearchService {
             Duration finalTimeout = timeout;
             
             futures.put(code, CompletableFuture.supplyAsync(() -> {
-                rateLimiter.acquireSearchPermit(code);
-                
-                // Execute within bulkhead AND circuit breaker
-                return circuitBreaker.execute(
-                    code,
-                    () -> bulkhead.execute(() -> supplier.search(command, finalTimeout)),
-                    () -> createFallbackResult(code)  // Fallback on circuit open
-                );
+                try {
+                    TenantContext.setTenantId(tenantId);
+                    rateLimiter.acquireSearchPermit(code);
+                    return circuitBreaker.execute(
+                        code,
+                        () -> bulkhead.execute(() -> supplier.search(command, finalTimeout)),
+                        () -> createFallbackResult(code)
+                    );
+                } finally {
+                    TenantContext.clear();
+                }
             }));
         }
         
@@ -109,7 +113,10 @@ public class TransferSearchService {
             try {
                 Duration remaining = Duration.between(Instant.now(), deadline);
                 SupplierSearchResult result = entry.getValue().get(Math.max(100, remaining.toMillis()), TimeUnit.MILLISECONDS);
-                allOffers.addAll(result.offers());
+                List<Offer> visibleOffers = tenant.getMaxResultsPerSupplier() == null
+                    ? result.offers()
+                    : result.offers().stream().limit(Math.max(0, tenant.getMaxResultsPerSupplier())).toList();
+                allOffers.addAll(visibleOffers);
                 supplierSearchIds.put(code, result.searchId());
                 
                 String status = result.complete() ? "SUCCESS" : "POLLING";
@@ -117,7 +124,7 @@ public class TransferSearchService {
                 
                 statuses.put(code, SupplierStatusDto.builder()
                     .status(status)
-                    .resultsCount(result.offers().size()).build());
+                    .resultsCount(visibleOffers.size()).build());
                 if (!result.complete() || result.timedOut()) incomplete = true;
                 log.info("Supplier {} returned {} offers, complete={}", code, result.offers().size(), result.complete());
             } catch (Exception e) {
@@ -147,14 +154,14 @@ public class TransferSearchService {
         return SupplierSearchResult.success(supplierCode, "fallback-" + supplierCode, List.of(), true, 0);
     }
     
-    private SearchCommand mapToCommand(SearchRequest req) {
+    private SearchCommand mapToCommand(SearchRequest req, AggregatorProperties.TenantProperties tenant) {
         return SearchCommand.builder()
             .pickupLocation(mapLocation(req.getPickupLocation()))
             .dropoffLocation(mapLocation(req.getDropoffLocation()))
             .pickupDateTime(req.getPickupDateTime())
             .numPassengers(req.getNumPassengers())
             .numBags(req.getNumBags())
-            .currency(req.getCurrency())
+            .currency(req.getCurrency() == null || req.getCurrency().isBlank() ? tenant.getDefaultCurrency() : req.getCurrency())
             .mode(req.getMode() != null ? SearchCommand.TransferMode.valueOf(req.getMode().name()) : SearchCommand.TransferMode.ONE_WAY)
             .build();
     }

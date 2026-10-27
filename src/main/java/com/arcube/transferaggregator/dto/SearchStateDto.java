@@ -18,6 +18,7 @@ import java.util.Map;
 public class SearchStateDto implements Serializable {
     
     private String searchId;
+    private String tenantId;
     private List<OfferDto> offers;
     private Map<String, SupplierStatusDto> statuses;
     private Map<String, String> supplierSearchIds;

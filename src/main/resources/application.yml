@@ -144,9 +144,18 @@ transfer:
 
 # Token signing for offerId/bookingId
 security:
+  api:
+    enabled: ${API_SECURITY_ENABLED:true}
+    issuer-uri: ${OIDC_ISSUER_URI:}
+    audience: ${OIDC_AUDIENCE:}
+    tenant-claim: ${OIDC_TENANT_CLAIM:tenant_id}
+    roles-claim: ${OIDC_ROLES_CLAIM:roles}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   token:
-    # HMAC-SHA256 secret key
-    secret: ${TOKEN_SECRET:57fd0a434be5ba1dc468f69ee204c70328ceb8cac56d6f3e70cd39c49ce5f7d4}
+    # Set from a secret store in authenticated environments; 32+ bytes.
+    secret: ${TOKEN_SECRET:}
+    active-key-id: ${TOKEN_ACTIVE_KEY_ID:v1}
+    previous-keys: {}
 
 # ============================================
 # Resilience4j Circuit Breaker Configuration

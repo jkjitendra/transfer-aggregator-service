@@ -34,19 +34,19 @@ public class TransferCancellationService {
     
     public CancelResponse cancel(String bookingId) {
         BookingPayload payload = bookingIdCodec.decode(bookingId);
-        log.info("Cancelling: supplier={}, reservationId={}", payload.supplierCode(), payload.reservationId());
+        log.info("Cancelling with supplier={}", payload.supplierCode());
         
         // Check if already in queue (pending retry)
         Optional<CancellationTask> pending = cancellationQueue.getPending(bookingId);
         if (pending.isPresent()) {
-            log.info("Cancellation already pending: bookingId={}, retry={}", bookingId, pending.get().retryCount());
+            log.info("Cancellation already pending: retry={}", pending.get().retryCount());
             return CancelResponse.pending(bookingId, "Cancellation in progress, please check status");
         }
         
         // Check if in DLQ (failed)
         Optional<CancellationTask> dlq = cancellationDLQ.get(bookingId);
         if (dlq.isPresent()) {
-            log.warn("Cancellation in DLQ: bookingId={}", bookingId);
+            log.warn("Cancellation in DLQ");
             return CancelResponse.failed(bookingId, "Cancellation failed. Please contact support.");
         }
         
@@ -61,11 +61,11 @@ public class TransferCancellationService {
             return handleResult(bookingId, payload, result);
         } catch (TimeoutException e) {
             // Supplier didn't respond in time - queue for retry
-            log.warn("Cancellation timeout, queuing for retry: bookingId={}", bookingId);
+            log.warn("Cancellation timeout, queuing for retry");
             queueForRetry(bookingId, payload);
             return CancelResponse.pending(bookingId, "Cancellation in progress, please check status");
         } catch (Exception e) {
-            log.error("Cancellation error: bookingId={}, error={}", bookingId, e.getMessage());
+            log.error("Cancellation error; queuing for retry", e);
             queueForRetry(bookingId, payload);
             return CancelResponse.pending(bookingId, "Cancellation in progress, please check status");
         }
@@ -73,6 +73,7 @@ public class TransferCancellationService {
     
     /** Check the status of a cancellation */
     public CancelResponse getStatus(String bookingId) {
+        bookingIdCodec.decode(bookingId);
         // Check if pending in queue
         Optional<CancellationTask> pending = cancellationQueue.getPending(bookingId);
         if (pending.isPresent()) {
@@ -84,7 +85,7 @@ public class TransferCancellationService {
         Optional<CancellationTask> dlq = cancellationDLQ.get(bookingId);
         if (dlq.isPresent()) {
             return CancelResponse.failed(bookingId, 
-                "Cancellation failed after 3 retries. Error: " + dlq.get().lastError());
+                "Cancellation failed after 3 retries. Contact support with X-Request-Id.");
         }
         
         // Not in queue - either completed or never started

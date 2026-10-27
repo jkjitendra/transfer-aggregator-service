@@ -1,12 +1,14 @@
 package com.arcube.transferaggregator.adapters.idcodec;
 
 import com.arcube.transferaggregator.config.TokenProperties;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.exception.InvalidTokenException;
 import com.arcube.transferaggregator.exception.OfferExpiredException;
 import com.arcube.transferaggregator.utils.HmacSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -20,6 +22,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class OfferIdCodecTest {
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
 
     private static OfferIdCodec codec() {
         TokenProperties props = new TokenProperties();
@@ -60,6 +67,34 @@ class OfferIdCodecTest {
 
         assertThatThrownBy(() -> codec.decode(tampered))
             .isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    void rejectsOfferFromAnotherTenant() {
+        OfferIdCodec codec = codec();
+        TenantContext.setTenantId("tenant-a");
+        String token = codec.encode(OfferPayload.of("MOZIO", "s1", "r1", Instant.now().plusSeconds(600)));
+        TenantContext.setTenantId("tenant-b");
+        assertThatThrownBy(() -> codec.decode(token)).isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    void previousKeyCanVerifyTokenAfterRotation() {
+        TokenProperties old = new TokenProperties();
+        old.setSecret("01234567890123456789012345678901");
+        old.setActiveKeyId("old");
+        old.validate();
+        TenantContext.setTenantId("tenant-a");
+        String token = new OfferIdCodec(new HmacSigner(old), new ObjectMapper())
+            .encode(OfferPayload.of("MOZIO", "s1", "r1", Instant.now().plusSeconds(600)));
+
+        TokenProperties rotated = new TokenProperties();
+        rotated.setSecret("abcdefghijklmnopqrstuvwxyzABCDEF0123456789");
+        rotated.setActiveKeyId("new");
+        rotated.setPreviousKeys(Map.of("old", old.getSecret()));
+        rotated.validate();
+        OfferIdCodec codec = new OfferIdCodec(new HmacSigner(rotated), new ObjectMapper());
+        assertThat(codec.decode(token).searchId()).isEqualTo("s1");
     }
 
     @Test

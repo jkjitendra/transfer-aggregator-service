@@ -1,11 +1,13 @@
 package com.arcube.transferaggregator.adapters.idcodec;
 
 import com.arcube.transferaggregator.config.TokenProperties;
+import com.arcube.transferaggregator.config.TenantContext;
 import com.arcube.transferaggregator.exception.InvalidTokenException;
 import com.arcube.transferaggregator.utils.HmacSigner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 import java.util.Map;
 
@@ -17,6 +19,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class BookingIdCodecTest {
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
 
     private static BookingIdCodec codec() {
         TokenProperties props = new TokenProperties();
@@ -48,6 +55,15 @@ class BookingIdCodecTest {
 
         assertThatThrownBy(() -> codec.decode(tampered))
             .isInstanceOf(InvalidTokenException.class);
+    }
+
+    @Test
+    void rejectsBookingFromAnotherTenant() {
+        BookingIdCodec codec = codec();
+        TenantContext.setTenantId("tenant-a");
+        String token = codec.encode(BookingPayload.of("STUB", "res-123", "CONF-1"));
+        TenantContext.setTenantId("tenant-b");
+        assertThatThrownBy(() -> codec.decode(token)).isInstanceOf(InvalidTokenException.class);
     }
 
     @Test

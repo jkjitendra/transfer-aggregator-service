@@ -28,15 +28,22 @@ public class TenantConfig {
 
     private final AggregatorProperties properties;
 
-    /**
-     * Get tenant config, falling back to default if not found.
-     */
+    /** Get an explicitly configured, enabled tenant. */
     public TenantProperties getTenant(String tenantId) {
         Map<String, TenantProperties> tenants = properties.getTenants();
         if (tenantId == null || tenantId.isBlank()) {
             tenantId = properties.getDefaultTenant();
         }
-        return tenants.getOrDefault(tenantId, getDefaultTenantConfig());
+        TenantProperties tenant = tenants.get(tenantId);
+        if (tenant == null || !tenant.isEnabled()) {
+            throw new IllegalArgumentException("Unknown or disabled tenant");
+        }
+        return tenant;
+    }
+
+    public boolean isKnownAndEnabled(String tenantId) {
+        TenantProperties tenant = properties.getTenants().get(tenantId);
+        return tenant != null && tenant.isEnabled();
     }
 
     public String getDefaultTenant() {
@@ -54,11 +61,4 @@ public class TenantConfig {
         return tenant.getEnabledSuppliers().contains(supplierCode);
     }
 
-    private TenantProperties getDefaultTenantConfig() {
-        TenantProperties defaultConfig = new TenantProperties();
-        defaultConfig.setName("Default Tenant");
-        defaultConfig.setEnabled(true);
-        // Empty enabledSuppliers = all suppliers allowed
-        return defaultConfig;
-    }
 }

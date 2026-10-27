@@ -30,6 +30,13 @@ import static org.mockito.Mockito.*;
 
 class TransferSearchServiceTest {
 
+    private TenantConfig mockTenantConfig() {
+        TenantConfig config = mock(TenantConfig.class);
+        AggregatorProperties.TenantProperties tenant = new AggregatorProperties.TenantProperties();
+        when(config.getTenant(anyString())).thenReturn(tenant);
+        return config;
+    }
+
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
@@ -43,7 +50,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -102,7 +109,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -140,7 +147,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -164,7 +171,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -201,7 +208,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -236,7 +243,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -268,7 +275,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -312,7 +319,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(5);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");
@@ -361,7 +368,7 @@ class TransferSearchServiceTest {
         RateLimiter rateLimiter = mock(RateLimiter.class);
         SearchPollingService pollingService = mock(SearchPollingService.class);
         SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
-        TenantConfig tenantConfig = mock(TenantConfig.class);
+        TenantConfig tenantConfig = mockTenantConfig();
 
         when(props.getGlobalTimeoutSeconds()).thenReturn(-1);
         when(tenantConfig.getDefaultTenant()).thenReturn("default");

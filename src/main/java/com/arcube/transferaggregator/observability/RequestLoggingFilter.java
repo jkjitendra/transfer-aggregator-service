@@ -37,21 +37,24 @@ public class RequestLoggingFilter implements Filter {
         
         // Extract or generate request ID
         String requestId = httpRequest.getHeader(REQUEST_ID_HEADER);
-        if (requestId == null || requestId.isBlank()) {
+        if (requestId == null || !requestId.matches("[A-Za-z0-9._-]{1,64}")) {
             requestId = UUID.randomUUID().toString().substring(0, 8);
         }
+        String safePath = httpRequest.getRequestURI()
+            .replaceAll("(?<=/bookings/)[^/]+", "{bookingId}")
+            .replaceAll("(?<=/pricing/)[^/]+(?=/amenities)", "{offerId}");
         
         // Set MDC context
         MDC.put(MDC_REQUEST_ID, requestId);
         MDC.put(MDC_METHOD, httpRequest.getMethod());
-        MDC.put(MDC_PATH, httpRequest.getRequestURI());
+        MDC.put(MDC_PATH, safePath);
         
         // Add request ID to response header
         httpResponse.setHeader(REQUEST_ID_HEADER, requestId);
         
         try {
             if (log.isDebugEnabled()) {
-                log.debug(">>> {} {} started", httpRequest.getMethod(), httpRequest.getRequestURI());
+                log.debug(">>> {} {} started", httpRequest.getMethod(), safePath);
             }
             
             chain.doFilter(request, response);
@@ -61,7 +64,7 @@ public class RequestLoggingFilter implements Filter {
             MDC.put(MDC_DURATION_MS, String.valueOf(duration));
             
             log.info("<<< {} {} completed status={} duration={}ms",
-                httpRequest.getMethod(), httpRequest.getRequestURI(), 
+                httpRequest.getMethod(), safePath,
                 httpResponse.getStatus(), duration);
             
             MDC.clear();

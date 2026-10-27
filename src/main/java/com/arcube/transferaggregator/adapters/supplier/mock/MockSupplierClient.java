@@ -71,7 +71,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
     
     @Override
     public SupplierCancelResult cancel(CancelCommand command) {
-        log.info("MOCK: Cancelling {}", command.reservationId());
+        log.info("MOCK: Cancelling reservation");
         sleep(200);
         log.info("MOCK: Cancelled");
         return SupplierCancelResult.success(SUPPLIER_CODE, command.reservationId(), Money.of(45.99, "USD"));
@@ -92,7 +92,7 @@ public class MockSupplierClient implements TransferSupplier, ReservationChangeSu
     @Override
     public SupplierReservationChangeSearchResult searchForChange(
             ReservationChangeSearchCommand command, Duration timeout) {
-        log.info("MOCK: Searching for change options, oldReservation={}", command.reservationId());
+        log.info("MOCK: Searching for change options");
         sleep(400);
         
         String searchId = "change-" + UUID.randomUUID().toString().substring(0, 8);

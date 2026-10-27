@@ -125,10 +125,12 @@ class PricingServiceTest {
 
     @Test
     void getAvailableAmenitiesReturnsStaticList() {
-        PricingService service = new PricingService(offerIdCodec(),
+        OfferIdCodec codec = offerIdCodec();
+        PricingService service = new PricingService(codec,
             Mockito.mock(StringRedisTemplate.class), new ObjectMapper());
 
-        assertThat(service.getAvailableAmenities("o1")).isNotEmpty();
+        String offerId = codec.encode(OfferPayload.of("STUB", "search-1", "r1", Instant.now().plusSeconds(600)));
+        assertThat(service.getAvailableAmenities(offerId)).isNotEmpty();
     }
 
     @Test
