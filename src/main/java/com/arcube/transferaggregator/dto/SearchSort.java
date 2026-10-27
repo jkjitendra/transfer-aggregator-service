@@ -18,7 +18,7 @@ public class SearchSort {
         PRICE,              // totalPrice.value
         RATING,             // provider.rating
         DURATION,           // estimatedDurationMinutes
-        DISTANCE,           // distanceMeters (Mozio-aligned)
+        DISTANCE,           // distanceMeters
         PASSENGERS,         // vehicle.maxPassengers
         PROVIDER_NAME       // provider.name
     }

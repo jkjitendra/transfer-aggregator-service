@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.function.Supplier;
 
 /**
@@ -62,6 +64,30 @@ public class RetryHandler {
      */
     public <T> T executeWithRetry(Supplier<T> action) {
         return executeWithRetry(action, DEFAULT_MAX_RETRIES);
+    }
+
+    /** Retry read-only supplier calls while the parent operation still has time. */
+    public <T> T executeReadWithinDeadline(Supplier<T> action, Instant deadline, int maxRetries) {
+        if (maxRetries < 0 || maxRetries > 5) throw new IllegalArgumentException("Invalid read retry count");
+        int attempt = 0;
+        while (true) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IllegalStateException("Read interrupted");
+            }
+            if (!Instant.now().isBefore(deadline)) {
+                throw new IllegalStateException("Read deadline exceeded");
+            }
+            try {
+                return action.get();
+            } catch (RuntimeException exception) {
+                if (attempt >= maxRetries || !isRetryable(exception)) throw exception;
+                long remainingMs = Duration.between(Instant.now(), deadline).toMillis();
+                if (remainingMs <= 0) throw exception;
+                long delayMs = Math.min(100L << attempt, remainingMs);
+                attempt++;
+                sleep(delayMs);
+            }
+        }
     }
     
     /**

@@ -24,6 +24,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.MDC;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -236,7 +238,7 @@ class TransferSearchServiceTest {
     }
 
     @Test
-    void usesCircuitBreakerFallbackResult() {
+    void circuitBreakerFallbackDoesNotCreateFakeSuccess() {
         SupplierRegistry registry = mock(SupplierRegistry.class);
         AggregatorProperties props = mock(AggregatorProperties.class);
         SupplierBulkhead bulkhead = mock(SupplierBulkhead.class);
@@ -263,8 +265,9 @@ class TransferSearchServiceTest {
 
         SearchResponse response = service.search(ArcubeTestData.validAddressSearch());
 
-        assertThat(response.getSupplierStatuses().get("S1").getStatus()).isEqualTo("SUCCESS");
-        verifyNoInteractions(pollingService);
+        assertThat(response.getSupplierStatuses().get("S1").getStatus()).isEqualTo("ERROR");
+        assertThat(response.isIncomplete()).isTrue();
+        verify(pollingService).cacheSearchState(anyString(), any(SearchResponse.class), anyMap());
     }
 
     @Test
@@ -361,7 +364,7 @@ class TransferSearchServiceTest {
     }
 
     @Test
-    void usesMinimumTimeoutWhenDeadlineAlreadyPassed() {
+    void doesNotCallSupplierWhenDeadlineAlreadyPassed() {
         SupplierRegistry registry = mock(SupplierRegistry.class);
         AggregatorProperties props = mock(AggregatorProperties.class);
         SupplierBulkhead bulkhead = mock(SupplierBulkhead.class);
@@ -389,10 +392,58 @@ class TransferSearchServiceTest {
         TransferSearchService service = new TransferSearchService(
             registry, props, bulkhead, rateLimiter, pollingService, circuitBreaker, tenantConfig);
 
-        service.search(ArcubeTestData.validAddressSearch());
+        SearchResponse response = service.search(ArcubeTestData.validAddressSearch());
 
-        ArgumentCaptor<Duration> timeoutCaptor = ArgumentCaptor.forClass(Duration.class);
-        verify(supplier).search(any(), timeoutCaptor.capture());
-        assertThat(timeoutCaptor.getValue().toMillis()).isEqualTo(100);
+        verify(supplier, never()).search(any(), any());
+        assertThat(response.getSupplierStatuses().get("S1").getStatus()).isEqualTo("TIMEOUT");
+    }
+
+    @Test
+    void slowSupplierIsCancelledAtDeadlineAndRequestContextIsPropagated() {
+        SupplierRegistry registry = mock(SupplierRegistry.class);
+        AggregatorProperties props = new AggregatorProperties();
+        props.setGlobalTimeoutSeconds(5);
+        var supplierTimeout = new AggregatorProperties.OperationTimeoutProperties();
+        supplierTimeout.setSearchSeconds(1);
+        props.getResilience().setSupplierTimeouts(Map.of("SLOW", supplierTimeout));
+        SupplierBulkhead bulkhead = mock(SupplierBulkhead.class);
+        RateLimiter rateLimiter = mock(RateLimiter.class);
+        SearchPollingService pollingService = mock(SearchPollingService.class);
+        SupplierCircuitBreaker circuitBreaker = mock(SupplierCircuitBreaker.class);
+        TenantConfig tenantConfig = mockTenantConfig();
+        when(tenantConfig.getDefaultTenant()).thenReturn("default");
+        when(tenantConfig.isSupplierEnabled(anyString(), anyString())).thenReturn(true);
+        TransferSupplier supplier = mock(TransferSupplier.class);
+        when(supplier.getSupplierCode()).thenReturn("SLOW");
+        when(registry.getEnabledSuppliers()).thenReturn(List.of(supplier));
+        when(bulkhead.execute(Mockito.<java.util.function.Supplier<Object>>any()))
+            .thenAnswer(inv -> ((java.util.function.Supplier<?>) inv.getArgument(0)).get());
+        when(circuitBreaker.execute(anyString(), any(), any()))
+            .thenAnswer(inv -> ((java.util.function.Supplier<?>) inv.getArgument(1)).get());
+        AtomicBoolean interrupted = new AtomicBoolean();
+        when(supplier.search(any(), any())).thenAnswer(inv -> {
+            assertThat(TenantContext.getTenantId()).isEqualTo("tenant-a");
+            assertThat(MDC.get("requestId")).isEqualTo("request-123");
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                interrupted.set(true);
+                Thread.currentThread().interrupt();
+            }
+            return SupplierSearchResult.success("SLOW", "late", List.of(), true, 1);
+        });
+        TransferSearchService service = new TransferSearchService(
+            registry, props, bulkhead, rateLimiter, pollingService, circuitBreaker, tenantConfig);
+        TenantContext.setTenantId("tenant-a");
+        MDC.put("requestId", "request-123");
+        try {
+            long start = System.nanoTime();
+            SearchResponse response = service.search(ArcubeTestData.validAddressSearch());
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
+            assertThat(response.getSupplierStatuses().get("SLOW").getStatus()).isEqualTo("TIMEOUT");
+            assertThat(interrupted).isTrue();
+        } finally {
+            MDC.clear();
+        }
     }
 }

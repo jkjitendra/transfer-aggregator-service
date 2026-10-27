@@ -4,7 +4,6 @@ security:
 
 transfer:
   aggregator:
-    mode: real
     suppliers:
       stub:
         enabled: false

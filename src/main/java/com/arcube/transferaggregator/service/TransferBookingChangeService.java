@@ -11,6 +11,7 @@ import com.arcube.transferaggregator.dto.SearchResponse.OfferDto;
 import com.arcube.transferaggregator.exception.SupplierNotFoundException;
 import com.arcube.transferaggregator.ports.*;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
+import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,8 +34,7 @@ public class TransferBookingChangeService {
 
     /**
      * Step 1: Search for change options using supplier-native change search.
-     * For suppliers supporting it (like Mozio), this uses the optimized
-     * /v2/search/reservation_changes/ endpoint.
+     * Uses a supplier-native change search when the port is supported.
      */
     public SearchResponse searchForChange(BookingChangeSearchRequest request) {
         // Decode original booking to get supplier info
@@ -101,7 +101,8 @@ public class TransferBookingChangeService {
             .currency("USD")
             .build();
 
-        Duration timeout = Duration.ofSeconds(properties.getGlobalTimeoutSeconds());
+        Duration timeout = SupplierOperationPolicy.timeout(properties, bookingPayload.supplierCode(),
+            SupplierOperationPolicy.Operation.CHANGE, Duration.ofSeconds(properties.getGlobalTimeoutSeconds()));
         SupplierReservationChangeSearchResult result = supplier.searchForChange(command, timeout);
 
         if (result.errorMessage() != null) {
@@ -144,7 +145,8 @@ public class TransferBookingChangeService {
             .useExistingPayment(request.isUseExistingPayment())
             .build();
 
-        Duration timeout = Duration.ofSeconds(properties.getGlobalTimeoutSeconds());
+        Duration timeout = SupplierOperationPolicy.timeout(properties, oldBookingPayload.supplierCode(),
+            SupplierOperationPolicy.Operation.CHANGE, Duration.ofSeconds(properties.getGlobalTimeoutSeconds()));
         SupplierReservationChangeResult result = supplier.changeReservation(command, timeout);
 
         if (result.status() == BookingStatus.FAILED) {

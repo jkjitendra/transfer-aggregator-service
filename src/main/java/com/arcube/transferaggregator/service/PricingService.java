@@ -29,7 +29,6 @@ import java.util.Optional;
 
 /**
  * Service for calculating total price with selected amenities.
- * Mozio endpoint: /v2/pricing/
  */
 @Slf4j
 @Service
@@ -127,22 +126,22 @@ public class PricingService {
         return List.of(
             new AmenityInfo("meet_and_greet", "Meet & Greet", 
                 "Driver will meet you with a sign", 
-                "https://static.mozio.com/amenities/meetgreet-new.svg", 30.00),
+                null, 30.00),
             new AmenityInfo("baby_seats", "Baby Seats (1-4 years)", 
                 "Child safety seat for infants", 
-                "https://static.mozio.com/amenities/baby-seats-new.svg", 15.00),
+                null, 15.00),
             new AmenityInfo("child_booster", "Child Booster (4-8 years)", 
                 "Booster seat for young children", 
-                "https://static.mozio.com/amenities/child-booster-new.svg", 15.00),
+                null, 15.00),
             new AmenityInfo("wifi", "WiFi", 
                 "Wireless internet during the trip", 
-                "https://static.mozio.com/amenities/wifi-new.svg", 5.00),
+                null, 5.00),
             new AmenityInfo("extra_waiting_time_thirty_min", "30 Min Extra Wait", 
                 "Up to 30 minutes additional waiting time", 
-                "https://static.mozio.com/amenities/waiting-new.svg", 20.00),
+                null, 20.00),
             new AmenityInfo("sms_notifications", "SMS Notifications", 
                 "Receive SMS when driver assigned", 
-                "https://static.mozio.com/amenities/sms-new.svg", 1.99)
+                null, 1.99)
         );
     }
 

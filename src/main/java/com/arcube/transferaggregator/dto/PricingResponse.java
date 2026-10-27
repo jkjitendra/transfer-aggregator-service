@@ -11,7 +11,6 @@ import java.util.List;
 
 /**
  * Response with calculated total price including selected amenities.
- * Mozio returns this from /v2/pricing/
  */
 @Data
 @Builder

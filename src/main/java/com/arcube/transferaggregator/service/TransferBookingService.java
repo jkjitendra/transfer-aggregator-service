@@ -12,6 +12,7 @@ import com.arcube.transferaggregator.ports.SupplierBookingResult;
 import com.arcube.transferaggregator.ports.SupplierRegistry;
 import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.workflow.DurableWriteCoordinator;
+import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,8 +72,9 @@ public class TransferBookingService {
         TransferSupplier supplier = supplierRegistry.getSupplier(offerPayload.supplierCode())
             .orElseThrow(() -> new SupplierNotFoundException(offerPayload.supplierCode()));
         BookCommand command = mapToCommand(request, offerPayload, trackingId);
-        SupplierBookingResult result = supplier.book(command,
-            Duration.ofSeconds(properties.getGlobalTimeoutSeconds()));
+        SupplierBookingResult result = supplier.book(command, SupplierOperationPolicy.timeout(properties,
+            offerPayload.supplierCode(), SupplierOperationPolicy.Operation.BOOKING,
+            Duration.ofSeconds(properties.getGlobalTimeoutSeconds())));
         return mapToResponse(result, offerPayload.supplierCode());
     }
     

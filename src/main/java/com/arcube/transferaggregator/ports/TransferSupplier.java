@@ -8,7 +8,7 @@ import java.time.Duration;
 
 /**
  * Port interface for transfer suppliers.
- * Each supplier (Mozio, future suppliers) implements this interface.
+ * Each transfer supplier implements this interface.
  */
 public interface TransferSupplier {
     

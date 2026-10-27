@@ -14,15 +14,16 @@ import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.resilience.RateLimiter;
 import com.arcube.transferaggregator.resilience.SupplierBulkhead;
 import com.arcube.transferaggregator.resilience.SupplierCircuitBreaker;
+import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 @Slf4j
 @Service
@@ -59,99 +60,152 @@ public class TransferSearchService {
                 .searchId(searchId).offers(List.of()).incomplete(true).supplierStatuses(Map.of())
                 .build();
         }
+        if (!Instant.now().isBefore(deadline)) {
+            Map<String, SupplierStatusDto> timedOut = new LinkedHashMap<>();
+            for (TransferSupplier supplier : suppliers) {
+                timedOut.put(supplier.getSupplierCode(), SupplierStatusDto.builder()
+                    .status("TIMEOUT").errorMessage("Search deadline exceeded").build());
+            }
+            return SearchResponse.builder().searchId(searchId).offers(List.of())
+                .incomplete(true).supplierStatuses(timedOut).build();
+        }
         
         // Fan out to suppliers in parallel with bulkhead and circuit breaker protection
-        Map<String, CompletableFuture<SupplierSearchResult>> futures = new HashMap<>();
-        for (TransferSupplier supplier : suppliers) {
-            String code = supplier.getSupplierCode();
+        Map<String, Future<SupplierSearchResult>> futures = new LinkedHashMap<>();
+        Map<String, Instant> supplierDeadlines = new HashMap<>();
+        Set<String> deadlineSkipped = new HashSet<>();
+        Map<String, String> requestContext = MDC.getCopyOfContextMap();
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            for (TransferSupplier supplier : suppliers) {
+                String code = supplier.getSupplierCode();
             
-            // Skip if circuit breaker is open
-            if (circuitBreaker.isOpen(code)) {
-                log.warn("Skipping supplier {} - circuit breaker OPEN", code);
-                continue;
-            }
-            
-            Duration timeout = Duration.between(Instant.now(), deadline);
-            if (timeout.isNegative()) timeout = Duration.ofMillis(100);
-            Duration finalTimeout = timeout;
-            
-            futures.put(code, CompletableFuture.supplyAsync(() -> {
-                try {
-                    TenantContext.setTenantId(tenantId);
-                    rateLimiter.acquireSearchPermit(code);
-                    return circuitBreaker.execute(
-                        code,
-                        () -> bulkhead.execute(() -> supplier.search(command, finalTimeout)),
-                        () -> createFallbackResult(code)
-                    );
-                } finally {
-                    TenantContext.clear();
+                // Skip if circuit breaker is open
+                if (circuitBreaker.isOpen(code)) {
+                    log.warn("Skipping supplier {} - circuit breaker OPEN", code);
+                    continue;
                 }
-            }));
-        }
-        
-        // Gather results
-        List<Offer> allOffers = new ArrayList<>();
-        Map<String, SupplierStatusDto> statuses = new HashMap<>();
-        Map<String, String> supplierSearchIds = new HashMap<>();
-        boolean incomplete = false;
-        
-        // Mark skipped suppliers
-        for (TransferSupplier supplier : suppliers) {
-            String code = supplier.getSupplierCode();
-            if (!futures.containsKey(code)) {
-                statuses.put(code, SupplierStatusDto.builder()
-                    .status("CIRCUIT_OPEN")
-                    .errorMessage("Circuit breaker open - supplier temporarily unavailable")
-                    .build());
-                incomplete = true;
+                if (!Instant.now().isBefore(deadline)) {
+                    deadlineSkipped.add(code);
+                    continue;
+                }
+            
+                Duration timeout = SupplierOperationPolicy.timeout(properties, code,
+                    SupplierOperationPolicy.Operation.SEARCH, Duration.between(Instant.now(), deadline));
+                supplierDeadlines.put(code, Instant.now().plus(timeout));
+            
+                futures.put(code, executor.submit(() -> {
+                    try {
+                        if (requestContext != null) MDC.setContextMap(requestContext);
+                        TenantContext.setTenantId(tenantId);
+                        rateLimiter.acquireSearchPermit(code);
+                        return circuitBreaker.execute(
+                            code,
+                            () -> bulkhead.execute(() -> supplier.search(command, timeout)),
+                            () -> { throw new IllegalStateException("Supplier circuit unavailable"); }
+                        );
+                    } finally {
+                        TenantContext.clear();
+                        MDC.clear();
+                    }
+                }));
             }
-        }
         
-        for (var entry : futures.entrySet()) {
-            String code = entry.getKey();
-            try {
-                Duration remaining = Duration.between(Instant.now(), deadline);
-                SupplierSearchResult result = entry.getValue().get(Math.max(100, remaining.toMillis()), TimeUnit.MILLISECONDS);
-                List<Offer> visibleOffers = tenant.getMaxResultsPerSupplier() == null
-                    ? result.offers()
-                    : result.offers().stream().limit(Math.max(0, tenant.getMaxResultsPerSupplier())).toList();
-                allOffers.addAll(visibleOffers);
-                supplierSearchIds.put(code, result.searchId());
-                
-                String status = result.complete() ? "SUCCESS" : "POLLING";
-                if (result.timedOut()) status = "TIMEOUT";
-                
-                statuses.put(code, SupplierStatusDto.builder()
-                    .status(status)
-                    .resultsCount(visibleOffers.size()).build());
-                if (!result.complete() || result.timedOut()) incomplete = true;
-                log.info("Supplier {} returned {} offers, complete={}", code, result.offers().size(), result.complete());
-            } catch (Exception e) {
-                log.error("Supplier {} failed: {}", code, e.getMessage());
-                statuses.put(code, SupplierStatusDto.builder().status("ERROR").errorMessage(e.getMessage()).build());
-                incomplete = true;
+            // Gather results
+            List<Offer> allOffers = new ArrayList<>();
+            Map<String, SupplierStatusDto> statuses = new HashMap<>();
+            Map<String, String> supplierSearchIds = new HashMap<>();
+            boolean incomplete = false;
+        
+            // Mark skipped suppliers
+            for (TransferSupplier supplier : suppliers) {
+                String code = supplier.getSupplierCode();
+                if (!futures.containsKey(code)) {
+                    statuses.put(code, SupplierStatusDto.builder()
+                        .status(deadlineSkipped.contains(code) ? "TIMEOUT" : "CIRCUIT_OPEN")
+                        .errorMessage(deadlineSkipped.contains(code) ? "Search deadline exceeded"
+                            : "Circuit breaker open - supplier temporarily unavailable")
+                        .build());
+                    incomplete = true;
+                }
             }
+        
+            for (var entry : futures.entrySet()) {
+                String code = entry.getKey();
+                try {
+                    Duration remaining = Duration.between(Instant.now(), deadline);
+                    Duration supplierRemaining = Duration.between(Instant.now(), supplierDeadlines.get(code));
+                    if (supplierRemaining.compareTo(remaining) < 0) remaining = supplierRemaining;
+                    if (remaining.isNegative() || remaining.isZero()) throw new TimeoutException();
+                    SupplierSearchResult result = entry.getValue().get(remaining.toMillis(), TimeUnit.MILLISECONDS);
+                    if (result == null || result.offers() == null) {
+                        throw new IllegalStateException("Malformed supplier search response");
+                    }
+                    List<Offer> visibleOffers = tenant.getMaxResultsPerSupplier() == null
+                        ? result.offers()
+                        : result.offers().stream().limit(Math.max(0, tenant.getMaxResultsPerSupplier())).toList();
+                    allOffers.addAll(visibleOffers);
+                    supplierSearchIds.put(code, result.searchId());
+                
+                    String status = result.complete() ? "SUCCESS" : "POLLING";
+                    if (result.timedOut()) status = "TIMEOUT";
+                
+                    statuses.put(code, SupplierStatusDto.builder()
+                        .status(status)
+                        .resultsCount(visibleOffers.size()).build());
+                    if (!result.complete() || result.timedOut()) incomplete = true;
+                    log.info("Supplier {} returned {} offers, complete={}", code, result.offers().size(), result.complete());
+                } catch (TimeoutException e) {
+                    entry.getValue().cancel(true);
+                    statuses.put(code, SupplierStatusDto.builder().status("TIMEOUT")
+                        .errorMessage("Supplier deadline exceeded").build());
+                    incomplete = true;
+                } catch (InterruptedException e) {
+                    entry.getValue().cancel(true);
+                    Thread.currentThread().interrupt();
+                    statuses.put(code, SupplierStatusDto.builder().status("TIMEOUT")
+                        .errorMessage("Request interrupted").build());
+                    incomplete = true;
+                    break;
+                } catch (ExecutionException | CancellationException e) {
+                    log.warn("Supplier {} failed: {}", code, e.getClass().getSimpleName());
+                    statuses.put(code, SupplierStatusDto.builder().status("ERROR")
+                        .errorMessage("Supplier temporarily unavailable").build());
+                    incomplete = true;
+                } catch (RuntimeException e) {
+                    log.warn("Supplier {} returned an unusable response", code);
+                    statuses.put(code, SupplierStatusDto.builder().status("ERROR")
+                        .errorMessage("Supplier temporarily unavailable").build());
+                    incomplete = true;
+                }
+            }
+
+            for (var entry : futures.entrySet()) {
+                if (!statuses.containsKey(entry.getKey())) {
+                    entry.getValue().cancel(true);
+                    statuses.put(entry.getKey(), SupplierStatusDto.builder().status("TIMEOUT")
+                        .errorMessage("Request interrupted").build());
+                    incomplete = true;
+                }
+            }
+        
+            log.info("Search {} complete: {} offers, incomplete={}", searchId, allOffers.size(), incomplete);
+            SearchResponse response = SearchResponse.builder()
+                .searchId(searchId)
+                .offers(allOffers.stream().map(this::mapToOfferDto).toList())
+                .incomplete(incomplete)
+                .supplierStatuses(statuses)
+                .build();
+        
+            if (incomplete) {
+                pollingService.cacheSearchState(searchId, response, supplierSearchIds);
+            }
+        
+            return response;
+        } finally {
+            futures.values().forEach(future -> { if (!future.isDone()) future.cancel(true); });
+            executor.shutdownNow();
         }
-        
-        log.info("Search {} complete: {} offers, incomplete={}", searchId, allOffers.size(), incomplete);
-        SearchResponse response = SearchResponse.builder()
-            .searchId(searchId)
-            .offers(allOffers.stream().map(this::mapToOfferDto).toList())
-            .incomplete(incomplete)
-            .supplierStatuses(statuses)
-            .build();
-        
-        if (incomplete) {
-            pollingService.cacheSearchState(searchId, response, supplierSearchIds);
-        }
-        
-        return response;
-    }
-    
-    private SupplierSearchResult createFallbackResult(String supplierCode) {
-        log.warn("Using fallback result for supplier {}", supplierCode);
-        return SupplierSearchResult.success(supplierCode, "fallback-" + supplierCode, List.of(), true, 0);
     }
     
     private SearchCommand mapToCommand(SearchRequest req, AggregatorProperties.TenantProperties tenant) {

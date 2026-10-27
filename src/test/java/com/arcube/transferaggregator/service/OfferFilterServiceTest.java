@@ -65,7 +65,7 @@ class OfferFilterServiceTest {
         List<OfferDto> offers = List.of(
             offer("1", "STUB", 50.00, "Sedan", 3, 3, 4.5, "Alpha", 40, 15000, List.of("wifi")),
             offer("2", "SKYRIDE", 120.00, "SUV", 6, 6, 4.9, "SkyRide", 30, 18000, List.of("wifi", "meet_greet")),
-            offer("3", "MOZIO", 80.00, "Executive Sedan", 3, 2, 4.7, "Carzen", 35, 14000, List.of("ride_tracking"))
+            offer("3", "SLOW_STUB", 80.00, "Executive Sedan", 3, 2, 4.7, "Carzen", 35, 14000, List.of("ride_tracking"))
         );
 
         SearchFilter filter = SearchFilter.builder()
@@ -95,7 +95,7 @@ class OfferFilterServiceTest {
         List<OfferDto> offers = List.of(
             offer("1", "STUB", 50.00, "Sedan", 3, 3, 4.5, "Alpha", 40, 15000, List.of()),
             offer("2", "SKYRIDE", 120.00, "SUV", 6, 6, 4.9, "SkyRide", 30, 18000, List.of()),
-            offer("3", "MOZIO", 80.00, "Executive Sedan", 3, 2, 4.7, "Carzen", 35, 14000, List.of())
+            offer("3", "SLOW_STUB", 80.00, "Executive Sedan", 3, 2, 4.7, "Carzen", 35, 14000, List.of())
         );
 
         OfferFilterService.FilterResult result = service.filterAndSort(

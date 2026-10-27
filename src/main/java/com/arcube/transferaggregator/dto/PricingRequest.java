@@ -9,7 +9,6 @@ import java.util.List;
 
 /**
  * Request for calculating total price with selected amenities.
- * Mozio endpoint: POST /v2/pricing/
  */
 @Data
 @Builder
