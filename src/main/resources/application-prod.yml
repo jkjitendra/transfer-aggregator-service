@@ -15,3 +15,11 @@ transfer:
 logging:
   level:
     com.arcube.transferaggregator: INFO
+management:
+  endpoint:
+    health:
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,redis

@@ -25,11 +25,17 @@ class SupplierMetricsTest {
         metrics.recordPoll("S1", "search");
         metrics.recordCancelSuccess("S1");
         metrics.recordCancelFailure("S1", "failed");
+        metrics.recordSearchOutcome("S1", "TIMEOUT", Duration.ofMillis(75));
+        metrics.recordSearchRequest(true, Duration.ofMillis(100));
 
         DistributionSummary summary = registry.find("transfer.search.results")
             .tag("supplier", "S1")
             .summary();
         assertThat(summary).isNotNull();
         assertThat(summary.count()).isEqualTo(1);
+        assertThat(registry.find("transfer.supplier.search.duration")
+            .tags("supplier", "S1", "outcome", "TIMEOUT").timer().count()).isEqualTo(1);
+        assertThat(registry.find("transfer.request.search.duration")
+            .tag("outcome", "partial").timer().count()).isEqualTo(1);
     }
 }

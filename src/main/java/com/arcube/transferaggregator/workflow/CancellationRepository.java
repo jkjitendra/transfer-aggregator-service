@@ -1,9 +1,12 @@
 package com.arcube.transferaggregator.workflow;
 
 import com.arcube.transferaggregator.dto.CancelResponse;
+import com.arcube.transferaggregator.observability.WorkflowMetrics;
+import com.arcube.transferaggregator.observability.StorageTelemetry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,6 +32,10 @@ public class CancellationRepository {
     private final ObjectMapper mapper;
     private final int leaseSeconds;
     private final int operationDays;
+    @Autowired(required = false)
+    private WorkflowMetrics metrics;
+    @Autowired(required = false)
+    private StorageTelemetry storageTelemetry;
 
     public CancellationRepository(JdbcTemplate jdbc, TransactionTemplate transactions, EnvelopeCrypto crypto,
                                   WorkflowRepository workflows, ObjectMapper mapper,
@@ -67,6 +74,7 @@ public class CancellationRepository {
                 return find(tenant, bookingHash).orElseThrow();
             }
             workflows.audit(operationId, tenant, "system", "CANCELLATION_REQUESTED", supplier);
+            record("REQUESTED");
             return find(tenant, bookingHash).orElseThrow();
         });
     }
@@ -91,7 +99,7 @@ public class CancellationRepository {
 
     public List<Job> claimDue(int limit) {
         UUID owner = UUID.randomUUID();
-        return transactions.execute(ignored -> {
+        java.util.function.Supplier<List<Job>> claim = () -> transactions.execute(ignored -> {
             List<Job> claimed = jdbc.query("WITH due AS (SELECT id FROM cancellation_jobs WHERE state IN " +
                     "('REQUESTED','RETRY_SCHEDULED') AND next_attempt_at <= now() " +
                     "ORDER BY next_attempt_at,created_at LIMIT ? FOR UPDATE SKIP LOCKED) " +
@@ -102,9 +110,13 @@ public class CancellationRepository {
             for (Job job : claimed) {
                 jdbc.update("UPDATE operations SET state='IN_PROGRESS',updated_at=now() WHERE id=?", job.operationId());
                 workflows.audit(job.operationId(), job.tenantId(), "system", "CANCELLATION_CLAIMED", job.supplierCode());
+                record("IN_PROGRESS");
             }
+            if (metrics != null) metrics.workerClaim(claimed.size());
             return claimed;
         });
+        return storageTelemetry == null ? claim.get()
+            : storageTelemetry.observe("postgres", "claim_cancellations", claim);
     }
 
     public List<Job> expiredLeases() {
@@ -131,6 +143,7 @@ public class CancellationRepository {
                         job.id());
                 }
                 workflows.audit(job.operationId(), job.tenantId(), "system", "LEASE_RECOVERED", state);
+                record(state);
             }
         });
     }
@@ -144,6 +157,7 @@ public class CancellationRepository {
                 jdbc.update("UPDATE operations SET state='SUCCEEDED',response_ciphertext=?,updated_at=now() WHERE id=?",
                     crypto.encrypt(write(response)), job.operationId());
                 workflows.audit(job.operationId(), job.tenantId(), "system", "CANCELLATION_SUCCEEDED", job.supplierCode());
+                record("SUCCEEDED");
             }
         });
     }
@@ -167,6 +181,7 @@ public class CancellationRepository {
                     "created_at=now(),resolved_at=NULL,resolved_by=NULL,resolution_note=NULL", job.id(), reasonCode);
             }
             workflows.audit(job.operationId(), job.tenantId(), "system", "CANCELLATION_ATTEMPT", state);
+            record(state);
         });
     }
 
@@ -194,9 +209,11 @@ public class CancellationRepository {
                 "next_attempt_at=now(),updated_at=now() WHERE id=? AND state='DLQ'", jobId);
             if (changed == 0) return false;
             jdbc.update("UPDATE dead_letters SET resolved_at=now(),resolved_by=?,resolution_note=?," +
-                "replay_count=replay_count+1 WHERE job_id=?", WorkflowRepository.sha256(actor), evidenceReference, jobId);
+                "replay_count=replay_count+1 WHERE job_id=?", WorkflowRepository.sha256(actor),
+                WorkflowRepository.sha256(evidenceReference), jobId);
             jdbc.update("UPDATE operations SET state='RETRY_SCHEDULED',updated_at=now() WHERE id=?", job.operationId());
             workflows.audit(job.operationId(), job.tenantId(), actor, "DLQ_REPLAY", "EVIDENCE_RECORDED");
+            record("RETRY_SCHEDULED");
             return true;
         });
     }
@@ -208,9 +225,10 @@ public class CancellationRepository {
                 "WHERE id=? AND state IN ('DLQ','UNKNOWN_OUTCOME')", jobId);
             if (changed == 0) return false;
             jdbc.update("UPDATE dead_letters SET resolved_at=now(),resolved_by=?,resolution_note=? WHERE job_id=?",
-                WorkflowRepository.sha256(actor), evidenceReference, jobId);
+                WorkflowRepository.sha256(actor), WorkflowRepository.sha256(evidenceReference), jobId);
             jdbc.update("UPDATE operations SET state='RESOLVED',updated_at=now() WHERE id=?", job.operationId());
             workflows.audit(job.operationId(), job.tenantId(), actor, "CANCELLATION_RESOLVED", "EVIDENCE_RECORDED");
+            record("RESOLVED");
             return true;
         });
     }
@@ -236,6 +254,10 @@ public class CancellationRepository {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Cannot serialize cancellation response", exception);
         }
+    }
+
+    private void record(String state) {
+        if (metrics != null) metrics.cancellation(state);
     }
 
     private Job mapJob(ResultSet rs, int row) throws SQLException {

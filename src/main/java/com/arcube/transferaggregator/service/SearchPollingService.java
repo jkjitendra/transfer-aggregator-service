@@ -8,6 +8,7 @@ import com.arcube.transferaggregator.exception.SearchStateExpiredException;
 import com.arcube.transferaggregator.exception.SearchStateNotFoundException;
 import com.arcube.transferaggregator.exception.SearchStateUnavailableException;
 import com.arcube.transferaggregator.resilience.RateLimiter;
+import com.arcube.transferaggregator.observability.StorageTelemetry;
 import com.arcube.transferaggregator.domain.Amenity;
 import com.arcube.transferaggregator.domain.Offer;
 import com.arcube.transferaggregator.dto.PageRequest;
@@ -44,6 +45,8 @@ public class SearchPollingService {
     private final TenantConfig tenantConfig;
     @Autowired(required = false)
     private RateLimiter rateLimiter;
+    @Autowired(required = false)
+    private StorageTelemetry storageTelemetry;
     
     public SearchPollingService(Optional<SlowMockSupplierClient> slowMockClient,
                                  StringRedisTemplate redisTemplate,
@@ -71,8 +74,8 @@ public class SearchPollingService {
         try {
             String cacheKey = CACHE_PREFIX + searchId;
             String json = objectMapper.writeValueAsString(state);
-            redisTemplate.opsForValue().set(cacheKey, json, CACHE_TTL);
-            redisTemplate.opsForValue().set(KNOWN_PREFIX + searchId, "1", KNOWN_TTL);
+            set(cacheKey, json, CACHE_TTL);
+            set(KNOWN_PREFIX + searchId, "1", KNOWN_TTL);
             log.debug("Cached search in Redis: id={}, incomplete={}, suppliers={}", 
                 searchId, response.isIncomplete(), supplierSearchIds.keySet());
         } catch (JsonProcessingException e) {
@@ -90,14 +93,14 @@ public class SearchPollingService {
         String cacheKey = CACHE_PREFIX + searchId;
         String json;
         try {
-            json = redisTemplate.opsForValue().get(cacheKey);
+            json = get(cacheKey);
         } catch (RuntimeException e) {
             throw new SearchStateUnavailableException(e);
         }
         
         if (json == null) {
             try {
-                if (redisTemplate.opsForValue().get(KNOWN_PREFIX + searchId) != null) {
+                if (get(KNOWN_PREFIX + searchId) != null) {
                     throw new SearchStateExpiredException();
                 }
             } catch (SearchStateExpiredException e) {
@@ -150,7 +153,7 @@ public class SearchPollingService {
         // Update cache
         try {
             String updatedJson = objectMapper.writeValueAsString(state);
-            redisTemplate.opsForValue().set(cacheKey, updatedJson, CACHE_TTL);
+            set(cacheKey, updatedJson, CACHE_TTL);
         } catch (JsonProcessingException e) {
             throw new SearchStateUnavailableException(e);
         } catch (RuntimeException e) {
@@ -183,6 +186,17 @@ public class SearchPollingService {
      */
     public SearchResponse poll(String searchId) {
         return poll(searchId, null, SearchSort.byPrice(), PageRequest.first());
+    }
+
+    private String get(String key) {
+        return storageTelemetry == null ? redisTemplate.opsForValue().get(key)
+            : storageTelemetry.observe("redis", "get", () -> redisTemplate.opsForValue().get(key));
+    }
+
+    private void set(String key, String value, Duration ttl) {
+        if (storageTelemetry == null) redisTemplate.opsForValue().set(key, value, ttl);
+        else storageTelemetry.observe("redis", "set",
+            () -> redisTemplate.opsForValue().set(key, value, ttl));
     }
     
     private OfferDto mapToDto(Offer o) {

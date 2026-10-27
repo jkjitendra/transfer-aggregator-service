@@ -25,7 +25,7 @@ public class SupplierCircuitBreaker {
             return CircuitBreaker.decorateSupplier(circuitBreaker, supplier).get();
         } catch (Exception e) {
             log.warn("Circuit breaker {} triggered fallback: {} - State: {}", 
-                supplierCode, e.getMessage(), circuitBreaker.getState());
+                supplierCode, e.getClass().getSimpleName(), circuitBreaker.getState());
             return fallback.get();
         }
     }

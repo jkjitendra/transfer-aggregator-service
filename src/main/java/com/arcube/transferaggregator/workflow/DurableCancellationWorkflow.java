@@ -12,6 +12,8 @@ import com.arcube.transferaggregator.ports.SupplierRegistry;
 import com.arcube.transferaggregator.ports.TransferSupplier;
 import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
 import com.arcube.transferaggregator.config.AggregatorProperties;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +41,8 @@ public class DurableCancellationWorkflow {
     private final int maxAttempts;
     @Autowired(required = false)
     private AggregatorProperties properties;
+    @Autowired(required = false)
+    private ObservationRegistry observations;
     @Value("${workflow.cancellation-lease-seconds:30}")
     private int leaseSeconds = 30;
 
@@ -104,6 +108,22 @@ public class DurableCancellationWorkflow {
     }
 
     private void process(CancellationRepository.Job job) {
+        MDC.put("operationId", job.operationId().toString());
+        try {
+            if (observations == null) {
+                processAttempt(job);
+            } else {
+                Observation.createNotStarted("transfer.cancellation.attempt", observations)
+                    .lowCardinalityKeyValue("supplier", job.supplierCode())
+                    .highCardinalityKeyValue("operation.id", job.operationId().toString())
+                    .observe(() -> processAttempt(job));
+            }
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    private void processAttempt(CancellationRepository.Job job) {
         TransferSupplier supplier = registry.getSupplier(job.supplierCode()).orElse(null);
         if (supplier == null) {
             repository.failedAttempt(job, true, true, maxAttempts, "SUPPLIER_UNAVAILABLE");
@@ -115,12 +135,20 @@ public class DurableCancellationWorkflow {
                 SupplierOperationPolicy.Operation.CANCELLATION, null).toMillis(),
             Math.max(1000, (leaseSeconds - 5L) * 1000));
         var executor = Executors.newVirtualThreadPerTaskExecutor();
+        Observation parent = observations == null ? null : observations.getCurrentObservation();
         try {
             Future<SupplierCancelResult> future = executor.submit(() -> {
                 TenantContext.setTenantId(job.tenantId());
                 MDC.put("operationId", job.operationId().toString());
                 try {
-                    return supplier.cancel(CancelCommand.of(repository.reservationId(job), job.supplierCode()));
+                    java.util.function.Supplier<SupplierCancelResult> call = () ->
+                        supplier.cancel(CancelCommand.of(repository.reservationId(job), job.supplierCode()));
+                    if (observations == null) return call.get();
+                    return Observation.createNotStarted("transfer.cancellation.supplier", observations)
+                        .parentObservation(parent)
+                        .lowCardinalityKeyValue("supplier", job.supplierCode())
+                        .highCardinalityKeyValue("operation.id", job.operationId().toString())
+                        .observe(call::get);
                 } finally {
                     TenantContext.clear();
                     MDC.clear();

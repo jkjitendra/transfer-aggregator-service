@@ -1,0 +1,52 @@
+groups:
+  - name: transfer-aggregator
+    rules:
+      - alert: TransferServiceUnavailable
+        expr: up{job="transfer-aggregator"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Transfer service scrape is unavailable
+          runbook: observability/OPERATIONS.md#service-or-dependency-outage
+      - alert: TransferHttpErrorRateHigh
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 0.001) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: More than five percent of HTTP requests are failing
+          runbook: observability/OPERATIONS.md#service-or-dependency-outage
+      - alert: TransferSupplierDegraded
+        expr: sum(rate(transfer_supplier_search_duration_seconds_count{outcome=~"ERROR|TIMEOUT|CIRCUIT_OPEN"}[5m])) / clamp_min(sum(rate(transfer_supplier_search_duration_seconds_count[5m])), 0.001) > 0.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Supplier search failures exceed twenty percent
+          runbook: observability/OPERATIONS.md#supplier-degradation
+      - alert: TransferUnknownOutcome
+        expr: transfer_workflow_review_depth > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: A booking or change requires outcome review
+          runbook: observability/OPERATIONS.md#unknown-write-outcome
+      - alert: TransferCancellationStuck
+        expr: transfer_cancellation_pending_oldest_seconds > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Oldest pending cancellation exceeds five minutes
+          runbook: observability/OPERATIONS.md#stuck-cancellations
+      - alert: TransferCancellationDlqNonempty
+        expr: (transfer_cancellation_dlq_depth or aggregator_dlq_size{queue="main"}) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Cancellation dead letters need operator review
+          runbook: observability/OPERATIONS.md#dead-letter-review
+      - alert: TransferWorkflowMetricsStale
+        expr: transfer_workflow_snapshot_healthy == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Workflow queue metrics cannot refresh from PostgreSQL
+          runbook: observability/OPERATIONS.md#service-or-dependency-outage
