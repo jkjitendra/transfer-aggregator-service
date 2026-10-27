@@ -49,8 +49,8 @@ import static org.mockito.ArgumentMatchers.any;
     "security.api.issuer-uri=https://issuer.example.test",
     "security.api.audience=transfer-api",
     "security.token.secret=test-only-key-not-for-production-123456789012345",
-    "workflow.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-    "transfer.aggregator.suppliers.mozio.enabled=false"
+    "transfer.aggregator.require-live-supplier=false",
+    "workflow.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 })
 @ActiveProfiles("prod")
 @EnabledIfEnvironmentVariable(named = "TRANSFER_TEST_POSTGRES_URL", matches = ".+")

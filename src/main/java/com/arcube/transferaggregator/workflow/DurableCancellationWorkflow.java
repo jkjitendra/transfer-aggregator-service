@@ -10,7 +10,11 @@ import com.arcube.transferaggregator.ports.IdempotentCancellationSupplier;
 import com.arcube.transferaggregator.ports.SupplierCancelResult;
 import com.arcube.transferaggregator.ports.SupplierRegistry;
 import com.arcube.transferaggregator.ports.TransferSupplier;
+import com.arcube.transferaggregator.resilience.SupplierOperationPolicy;
+import com.arcube.transferaggregator.config.AggregatorProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,6 +37,10 @@ public class DurableCancellationWorkflow {
     private final CancellationRepository repository;
     private final SupplierRegistry registry;
     private final int maxAttempts;
+    @Autowired(required = false)
+    private AggregatorProperties properties;
+    @Value("${workflow.cancellation-lease-seconds:30}")
+    private int leaseSeconds = 30;
 
     public DurableCancellationWorkflow(CancellationRepository repository, SupplierRegistry registry,
                                        @Value("${workflow.cancellation-max-attempts:3}") int maxAttempts) {
@@ -102,13 +110,25 @@ public class DurableCancellationWorkflow {
             return;
         }
         boolean safeToRetry = supplier instanceof IdempotentCancellationSupplier;
+        long timeoutMillis = Math.min(
+            SupplierOperationPolicy.timeout(properties, job.supplierCode(),
+                SupplierOperationPolicy.Operation.CANCELLATION, null).toMillis(),
+            Math.max(1000, (leaseSeconds - 5L) * 1000));
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            Future<SupplierCancelResult> future = executor.submit(() -> supplier.cancel(
-                CancelCommand.of(repository.reservationId(job), job.supplierCode())));
+            Future<SupplierCancelResult> future = executor.submit(() -> {
+                TenantContext.setTenantId(job.tenantId());
+                MDC.put("operationId", job.operationId().toString());
+                try {
+                    return supplier.cancel(CancelCommand.of(repository.reservationId(job), job.supplierCode()));
+                } finally {
+                    TenantContext.clear();
+                    MDC.clear();
+                }
+            });
             SupplierCancelResult result;
             try {
-                result = future.get(5, TimeUnit.SECONDS);
+                result = future.get(timeoutMillis, TimeUnit.MILLISECONDS);
             } catch (TimeoutException exception) {
                 future.cancel(true);
                 repository.failedAttempt(job, safeToRetry, false, maxAttempts, "SUPPLIER_TIMEOUT");

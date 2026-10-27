@@ -192,12 +192,12 @@ public final class ArcubeTestData {
     // ===================
     
     public static OfferPayload validOfferPayload() {
-        return OfferPayload.of("MOZIO", "search-123", "result-456", 
+        return OfferPayload.of("STUB", "search-123", "result-456",
             Instant.now().plus(20, ChronoUnit.MINUTES));
     }
     
     public static OfferPayload expiredOfferPayload() {
-        return OfferPayload.of("MOZIO", "search-old", "result-old",
+        return OfferPayload.of("STUB", "search-old", "result-old",
             Instant.now().minus(1, ChronoUnit.HOURS));
     }
     
@@ -207,7 +207,7 @@ public final class ArcubeTestData {
     }
     
     public static BookingPayload validBookingPayload() {
-        return BookingPayload.of("MOZIO", "reservation-789", "MZ123456");
+        return BookingPayload.of("STUB", "reservation-789", "DEMO123456");
     }
     
     public static BookingPayload stubBookingPayload() {

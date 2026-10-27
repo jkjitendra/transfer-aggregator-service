@@ -11,6 +11,7 @@ spring:
   flyway:
     enabled: false
 
-transfer:
-  aggregator:
-    mode: stub
+routing:
+  osrm:
+    enabled: ${ROUTING_ENABLED:true}
+    base-url: ${ROUTING_BASE_URL:https://router.project-osrm.org}

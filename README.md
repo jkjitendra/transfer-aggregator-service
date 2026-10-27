@@ -116,10 +116,10 @@ This service is built using **Hexagonal Architecture (Ports and Adapters)** to e
             │
 ┌───────────▼─────────────────────────────────────────────────────────────────────┐
 │                         Adapter Layer (Suppliers)                               │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐  │
-│  │ MockSupplier    │ │ SlowMockSupplier│ │ SkyRideSupplier │ │ MozioSupplier │  │
-│  │ (STUB)          │ │ (SLOW_STUB)     │ │ (Mock Premium)  │ │ (Real API)    │  │
-│  └─────────────────┘ └─────────────────┘ └─────────────────┘ └───────────────┘  │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐                    │
+│  │ MockSupplier    │ │ SlowMockSupplier│ │ SkyRideSupplier │                    │
+│  │ (STUB)          │ │ (SLOW_STUB)     │ │ (Mock Premium)  │                    │
+│  └─────────────────┘ └─────────────────┘ └─────────────────┘                    │
 │                                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐    │
 │  │ OfferIdCodec / BookingIdCodec (HMAC-signed stateless tokens)            │    │
@@ -274,7 +274,6 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 
 | Key | Default | Description | Effect When Changed |
 |-----|---------|-------------|---------------------|
-| `transfer.aggregator.mode` | `stub` | Operation mode | Set to `real` to register Mozio; separately disable `SKYRIDE` and `SLOW_STUB` mocks if they must not be exposed |
 | `transfer.aggregator.global-timeout-seconds` | `10` | Max time for all operations | Increase for slow suppliers |
 
 ### Supplier Configuration
@@ -284,12 +283,14 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `transfer.aggregator.suppliers.stub.enabled` | `true` | Enable mock supplier (fast, returns immediately) |
 | `transfer.aggregator.suppliers.slow-stub.enabled` | `true` | Enable slow mock supplier (simulates async polling) |
 | `transfer.aggregator.suppliers.skyride.enabled` | `true` | Enable SkyRide mock supplier (premium vehicles) |
-| `transfer.aggregator.suppliers.mozio.enabled` | `true` | Enable Mozio integration |
-| `transfer.aggregator.suppliers.mozio.base-url` | `https://api-testing.mozio.com` | Mozio API base URL |
-| `transfer.aggregator.suppliers.mozio.api-key` | `(empty)` | Mozio API key (required for real calls) |
-| `transfer.aggregator.suppliers.mozio.poll-interval-ms` | `2000` | Mozio polling interval |
-| `transfer.aggregator.suppliers.mozio.max-poll-attempts` | `5` | Max polling attempts before timeout |
-| `transfer.aggregator.suppliers.mozio.search-validity-minutes` | `20` | Mozio search results TTL |
+
+All three supplier adapters generate synthetic offers and reservations. The `prod` profile disables them. Outside `demo` and `test`, startup fails unless a verified `LiveTransferSupplier` is configured. `REQUIRE_LIVE_SUPPLIER=false` is an explicit local integration-test override, not a deployment setting. Route estimates alone do not provide availability, pricing, booking, or cancellation.
+
+### Optional Open-Source Route Estimates
+
+`GET /api/v1/routes/estimate` returns driving distance and duration from [OSRM](https://project-osrm.org/docs/v26.5.0/http). It is read-only and can support a future journey visualization. The `demo` profile uses the public OSRM server and limits calls to one per second per process. That server is for low-volume demonstrations and has no availability guarantee. Production should run OSRM on its own infrastructure and set `ROUTING_ENABLED=true` and `ROUTING_BASE_URL` to its HTTPS or local endpoint. The default non-demo endpoint is `http://localhost:5000`, with routing disabled until configured.
+
+Example: `/api/v1/routes/estimate?pickupLatitude=52.517037&pickupLongitude=13.38886&dropoffLatitude=52.529407&dropoffLongitude=13.397634`. The response includes the required OpenStreetMap / OSRM attribution. Do not send customer location data to the public demo endpoint.
 
 ### Resilience Configuration
 
@@ -298,6 +299,11 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `transfer.aggregator.resilience.max-concurrent-calls` | `50` | Max concurrent supplier calls (bulkhead) |
 | `transfer.aggregator.resilience.search-rate-limit-per-minute` | `80` | Per-tenant, per-supplier Redis limit outside demo; process-local in demo |
 | `transfer.aggregator.resilience.poll-rate-limit-per-minute` | `25` | Poll limit per search ID; Redis-backed outside demo |
+| `transfer.aggregator.resilience.supplier-timeouts.<CODE>.*-seconds` | Operation-specific supplier deadline | Configure search, booking, change, and cancellation timeouts per supplier |
+
+Provisional local verification targets: search p95 under 2 seconds with 20 concurrent requests against simulated suppliers, no more than 50 simultaneous supplier calls, and no duplicate supplier write for the same idempotency key. These are engineering targets for the local test stack, not a claim about a live transfer provider or the public route demo.
+
+Search fan-out uses virtual threads and a shared request deadline. Timed-out supplier calls are interrupted and reported as partial results. Circuit-breaker failures are reported as unavailable, never as successful empty inventory. Booking and change writes are not retried on transport failures without verified upstream idempotency. All current booking suppliers are simulated; no live transfer reservation is created.
 
 ### Circuit Breaker Configuration (Resilience4j)
 
@@ -307,7 +313,6 @@ Swagger loads the OpenAPI spec from `/openapi.yaml` and provides an interactive 
 | `resilience4j.circuitbreaker.configs.default.failureRateThreshold` | `50` | Failure rate % to open circuit |
 | `resilience4j.circuitbreaker.configs.default.waitDurationInOpenState` | `30s` | Time in OPEN before HALF_OPEN |
 | `resilience4j.circuitbreaker.configs.default.permittedNumberOfCallsInHalfOpenState` | `3` | Test calls in HALF_OPEN |
-| `resilience4j.circuitbreaker.instances.MOZIO.failureRateThreshold` | `40` | Mozio-specific threshold (stricter) |
 
 ### Multi-Tenancy Configuration
 
@@ -373,13 +378,12 @@ Authenticated business requests require a JWT with the configured issuer, audien
 
 | Variable | Maps To | Required |
 |----------|---------|----------|
-| `AGGREGATOR_MODE` | `transfer.aggregator.mode` | No |
-| `MOZIO_ENABLED` | `transfer.aggregator.suppliers.mozio.enabled` | No |
-| `MOZIO_API_KEY` | `transfer.aggregator.suppliers.mozio.api-key` | For real Mozio calls |
 | `TOKEN_SECRET` | `security.token.secret` | Outside demo/test |
 | `TOKEN_ACTIVE_KEY_ID` | `security.token.active-key-id` | No |
 | `OIDC_ISSUER_URI` / `OIDC_AUDIENCE` | `security.api.issuer-uri` / `security.api.audience` | Outside demo/test |
 | `OIDC_TENANT_CLAIM` / `OIDC_ROLES_CLAIM` | JWT claim names | No |
+| `ROUTING_ENABLED` / `ROUTING_BASE_URL` / `ROUTING_TIMEOUT` | Optional OSRM route estimates | No |
+| `REQUIRE_LIVE_SUPPLIER` | Startup guard for a verified booking supplier outside demo/test | Defaults to `true` |
 | `CORS_ALLOWED_ORIGINS` | `security.api.allowed-origins` | For browser clients |
 | `REDIS_HOST` | `spring.data.redis.host` | For distributed caching |
 | `ALERTING_ENABLED` | `transfer.aggregator.alerting.enabled` | No |
@@ -454,7 +458,7 @@ Search for transfer offers across all enabled suppliers.
   "incomplete": false,
   "supplierStatuses": {
     "STUB": {"status": "SUCCESS", "resultsCount": 5},
-    "MOZIO": {"status": "TIMEOUT", "resultsCount": 0}
+    "SKYRIDE": {"status": "TIMEOUT", "resultsCount": 0}
   }
 }
 ```
@@ -654,7 +658,7 @@ Search for alternative offers to change an existing booking.
 
 #### POST /api/v1/transfers/bookings/{bookingId}/commit-change
 
-Commit a booking change if the supplier supports its native change operation. The current real Mozio adapter does not implement the change port.
+Commit a booking change if the supplier supports its native change operation. The current mock supplier supports this flow for local testing.
 
 **Headers:**
 - `Idempotency-Key`: Required outside demo for a supplier-supported change; conflicting reuse returns `409`
@@ -733,7 +737,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 
 ### 3. Polling Model vs Synchronous Aggregation
 
-**Problem:** Suppliers like Mozio return results asynchronously, initial response may be incomplete.
+**Problem:** Some suppliers return results asynchronously, so an initial response may be incomplete.
 
 **Solution:** Two-phase approach:
 1. **Search**: Initiates parallel queries, returns immediately available results
@@ -788,7 +792,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 ### 6. Multi-Tenancy
 
 **Problem:** Arcube serves multiple airlines, and each airline has different requirements:
-- Airline A has a contract with Mozio only
+- Tenant A allows the standard mock supplier
 - Airline B prefers European suppliers with EUR pricing
 - Premium partners want more results and access to all suppliers
 
@@ -798,7 +802,7 @@ curl -X POST http://localhost:8080/api/v1/admin/alerts/check
 ```yaml
 tenants:
   airline-a:
-    enabled-suppliers: [MOZIO]
+    enabled-suppliers: [STUB]
     default-currency: USD
   airline-b:
     enabled-suppliers: [SKYRIDE, SLOW_STUB]

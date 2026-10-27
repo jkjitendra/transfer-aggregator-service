@@ -15,11 +15,11 @@ import com.arcube.transferaggregator.config.AggregatorProperties.TenantPropertie
  *   tenants:
  *     tenant-a:
  *       name: "Travel Partner A"
- *       enabled-suppliers: [STUB, MOZIO]
+ *       enabled-suppliers: [STUB, SKYRIDE]
  *       default-currency: USD
  *     tenant-b:
  *       name: "Travel Partner B"
- *       enabled-suppliers: [SKYRIDE, MOZIO]
+ *       enabled-suppliers: [SKYRIDE, SLOW_STUB]
  *       default-currency: EUR
  */
 @Component

@@ -37,7 +37,7 @@ class OfferIdCodecTest {
 
     @Test
     void encodeDecodeRoundTrip() {
-        OfferPayload payload = OfferPayload.of("MOZIO", "search-1", "result-2",
+        OfferPayload payload = OfferPayload.of("STUB", "search-1", "result-2",
             Instant.now().plus(10, ChronoUnit.MINUTES));
 
         OfferIdCodec codec = codec();
@@ -59,7 +59,7 @@ class OfferIdCodecTest {
     @Test
     void decodeRejectsInvalidSignature() {
         OfferIdCodec codec = codec();
-        OfferPayload payload = OfferPayload.of("MOZIO", "search-1", "result-2",
+        OfferPayload payload = OfferPayload.of("STUB", "search-1", "result-2",
             Instant.now().plus(10, ChronoUnit.MINUTES));
 
         String token = codec.encode(payload);
@@ -73,7 +73,7 @@ class OfferIdCodecTest {
     void rejectsOfferFromAnotherTenant() {
         OfferIdCodec codec = codec();
         TenantContext.setTenantId("tenant-a");
-        String token = codec.encode(OfferPayload.of("MOZIO", "s1", "r1", Instant.now().plusSeconds(600)));
+        String token = codec.encode(OfferPayload.of("STUB", "s1", "r1", Instant.now().plusSeconds(600)));
         TenantContext.setTenantId("tenant-b");
         assertThatThrownBy(() -> codec.decode(token)).isInstanceOf(InvalidTokenException.class);
     }
@@ -86,7 +86,7 @@ class OfferIdCodecTest {
         old.validate();
         TenantContext.setTenantId("tenant-a");
         String token = new OfferIdCodec(new HmacSigner(old), new ObjectMapper())
-            .encode(OfferPayload.of("MOZIO", "s1", "r1", Instant.now().plusSeconds(600)));
+            .encode(OfferPayload.of("STUB", "s1", "r1", Instant.now().plusSeconds(600)));
 
         TokenProperties rotated = new TokenProperties();
         rotated.setSecret("abcdefghijklmnopqrstuvwxyzABCDEF0123456789");
@@ -100,7 +100,7 @@ class OfferIdCodecTest {
     @Test
     void decodeRejectsExpiredOffer() {
         OfferIdCodec codec = codec();
-        OfferPayload payload = OfferPayload.of("MOZIO", "search-old", "result-old",
+        OfferPayload payload = OfferPayload.of("STUB", "search-old", "result-old",
             Instant.now().minus(1, ChronoUnit.HOURS));
 
         String token = codec.encode(payload);

@@ -2,10 +2,23 @@ package com.arcube.transferaggregator.resilience;
 
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RetryHandlerTest {
+
+    @Test
+    void readRetryStopsAtParentDeadline() {
+        RetryHandler handler = new RetryHandler();
+        AtomicInteger attempts = new AtomicInteger();
+        assertThatThrownBy(() -> handler.executeReadWithinDeadline(() -> {
+            attempts.incrementAndGet();
+            throw new RuntimeException("connection reset");
+        }, Instant.now().plusMillis(60), 5)).isInstanceOf(RuntimeException.class);
+        assertThat(attempts.get()).isLessThanOrEqualTo(2);
+    }
     
     @Test
     void shouldRetryOnTransientFailure() {

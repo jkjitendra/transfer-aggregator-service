@@ -25,8 +25,7 @@ public class SearchRequest {
     private LocationDto dropoffLocation;
     
     /**
-     * Pickup date/time. Optional - if not provided, Mozio will use
-     * current time + their default lead time.
+     * Pickup date/time for the requested transfer.
      */
     private LocalDateTime pickupDateTime;
     

@@ -5,6 +5,12 @@
 server:
   port: 8080
 
+routing:
+  osrm:
+    enabled: ${ROUTING_ENABLED:false}
+    base-url: ${ROUTING_BASE_URL:http://localhost:5000}
+    timeout: ${ROUTING_TIMEOUT:2s}
+
 
 spring:
   application:
@@ -57,9 +63,7 @@ spring:
 # ============================================
 transfer:
   aggregator:
-    # Mode: stub (default) or real
-    mode: ${AGGREGATOR_MODE:stub}
-    
+    require-live-supplier: ${REQUIRE_LIVE_SUPPLIER:true}
     # Global timeout for all operations (search, book, cancel)
     global-timeout-seconds: 10
     
@@ -69,23 +73,17 @@ transfer:
         enabled: ${STUB_ENABLED:true}
       slow-stub:
         enabled: ${SLOW_STUB_ENABLED:true}
-      mozio:
-        enabled: ${MOZIO_ENABLED:true}
-        base-url: ${MOZIO_BASE_URL:https://api-testing.mozio.com}
-        api-key: ${MOZIO_API_KEY:}
-        # Polling configuration
-        poll-interval-ms: 2000
-        max-poll-attempts: 5
-        # Mozio Search results validity (20 minutes)
-        search-validity-minutes: 20
-        # HTTP timeouts
-        initial-request-timeout-seconds: 10
-        poll-response-timeout-seconds: 5
       skyride:
         enabled: ${SKYRIDE_ENABLED:true}
     
     # Resilience configuration
     resilience:
+      supplier-timeouts:
+        STUB:
+          search-seconds: 3
+          booking-seconds: 5
+          change-seconds: 5
+          cancellation-seconds: 5
       # Maximum concurrent supplier calls
       max-concurrent-calls: 50
       # Rate limit per minute for search requests
@@ -106,7 +104,6 @@ transfer:
         enabled: true
         enabled-suppliers:
           - STUB
-          - MOZIO
         default-currency: USD
         max-results-per-supplier: 10
         
@@ -124,7 +121,6 @@ transfer:
         enabled-suppliers:
           - STUB
           - SKYRIDE
-          - MOZIO
           - SLOW_STUB
         default-currency: USD
         max-results-per-supplier: 50
@@ -198,10 +194,6 @@ resilience4j:
       SLOW_STUB:
         baseConfig: default
         waitDurationInOpenState: 60s
-      MOZIO:
-        baseConfig: default
-        slidingWindowSize: 20
-        failureRateThreshold: 40
 
   timelimiter:
     configs:

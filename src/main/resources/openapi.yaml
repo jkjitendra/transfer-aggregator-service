@@ -9,6 +9,7 @@ info:
     - Unified booking interface
     - Signed, stateless tokens for offers and bookings
     - PostgreSQL-backed idempotency and operation status for authenticated write requests
+    - Optional read-only route estimates from OSRM; these do not create bookings
 
     ## Authentication
     Business and admin requests require an OIDC bearer JWT with the configured issuer and audience.
@@ -42,8 +43,49 @@ tags:
     description: Search and commit booking changes
   - name: AdminAlerts
     description: Admin endpoints for alerting and monitoring
+  - name: Routes
+    description: Optional driving distance and duration estimates
 
 paths:
+  /api/v1/routes/estimate:
+    get:
+      tags: [Routes]
+      summary: Estimate a driving route
+      description: Available when routing.osrm.enabled is true. Public demo routing is restricted to the demo profile; production should use a self-hosted OSRM instance.
+      operationId: estimateRoute
+      parameters:
+        - name: pickupLatitude
+          in: query
+          required: true
+          schema: {type: number, format: double, minimum: -90, maximum: 90}
+        - name: pickupLongitude
+          in: query
+          required: true
+          schema: {type: number, format: double, minimum: -180, maximum: 180}
+        - name: dropoffLatitude
+          in: query
+          required: true
+          schema: {type: number, format: double, minimum: -90, maximum: 90}
+        - name: dropoffLongitude
+          in: query
+          required: true
+          schema: {type: number, format: double, minimum: -180, maximum: 180}
+      responses:
+        '200':
+          description: Driving route estimate
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [distanceMeters, durationSeconds, attribution]
+                properties:
+                  distanceMeters: {type: integer, format: int64}
+                  durationSeconds: {type: integer, format: int64}
+                  attribution: {type: string}
+        '400': {description: Invalid coordinates}
+        '404': {description: No driving route found}
+        '429': {description: Public demo rate limit exceeded}
+        '503': {description: Routing backend unavailable}
   /api/v1/transfers/search:
     post:
       tags:
@@ -107,7 +149,7 @@ paths:
       summary: Poll for search results (with filtering/sorting/pagination)
       description: |
         Poll search results for a given searchId.
-        Supports filtering/sorting/pagination via query params (Mozio-aligned).
+        Supports filtering, sorting, and pagination via query params.
         Incomplete aggregate search state is stored in Redis for 10 minutes.
         Unknown IDs return 404; recently expired IDs return 410. Redis failure returns 503.
       operationId: pollSearch
@@ -214,7 +256,7 @@ paths:
             type: array
             items:
               type: string
-          description: Required amenities (Mozio-aligned)
+          description: Required amenities
         - name: freeCancellationOnly
           in: query
           required: false
@@ -489,7 +531,7 @@ paths:
       tags:
         - Pricing
       summary: Get price with amenities via query params
-      description: Mozio-aligned GET support.
+      description: GET support for selected amenities.
       operationId: getPriceWithAmenities
       parameters:
         - name: X-Request-Id
