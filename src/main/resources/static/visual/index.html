@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Transfer operations · visual guide</title>
+  <link rel="stylesheet" href="./visual.css">
+  <script src="./visual.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand">TRANSFER <span>AGGREGATOR</span></div>
+    <nav aria-label="Experiences">
+      <button id="demo-tab" class="tab active" type="button" aria-controls="demo">Architecture / demo</button>
+      <button id="console-tab" class="tab" type="button" aria-controls="console">Authenticated operations console</button>
+    </nav>
+  </header>
+  <main>
+    <section id="demo" aria-labelledby="demo-title">
+      <div class="intro">
+        <p class="eyebrow">Experience 01 · public / synthetic</p>
+        <h1 id="demo-title">How a transfer request moves.</h1>
+        <p class="lede">A guided account of supplier fan-out, partial results, durable writes, and operator recovery. Every value here is invented; this view makes no live API calls.</p>
+      </div>
+      <div class="rule-head"><h2>01 / Request journey</h2><p>Choose a seeded case</p></div>
+      <div class="scenario-nav" role="group" aria-label="Seeded scenarios">
+        <button type="button" data-scenario="partial" class="selected">Partial search</button>
+        <button type="button" data-scenario="unknown">Unknown write</button>
+        <button type="button" data-scenario="cancellation">Cancellation / DLQ</button>
+      </div>
+      <div class="scenario-layout">
+        <div>
+          <p id="scenario-kicker" class="eyebrow"></p>
+          <h3 id="scenario-title"></h3>
+          <p id="scenario-summary" class="body-large"></p>
+          <ol id="journey" class="journey"></ol>
+        </div>
+        <aside class="supplier-sheet" aria-labelledby="supplier-title">
+          <h3 id="supplier-title">Supplier responses &amp; decision</h3>
+          <div id="supplier-responses"></div>
+          <p id="decision" class="decision"></p>
+        </aside>
+      </div>
+      <div class="rule-head"><h2>02 / Stateless verification</h2><p>Synthetic key only</p></div>
+      <div class="explain-grid">
+        <p>An offer identifier carries a payload and an HMAC signature. The server verifies the signature with a configured key and checks its expiry; no session lookup is needed. The live key is never sent to this page.</p>
+        <div class="verification">
+          <code id="synthetic-payload"></code>
+          <button type="button" id="verify-button">Verify synthetic signature</button>
+          <p id="verification-result" aria-live="polite">Press verify to run HMAC SHA-256 in this browser with a deliberately public demonstration key.</p>
+        </div>
+      </div>
+      <div class="rule-head"><h2>03 / Operational signals</h2><p>Illustrative counts, not production telemetry</p></div>
+      <div id="demo-chart" class="chart"></div>
+      <p class="caption">The authenticated console reads bounded aggregates from the application meters. Grafana uses Prometheus for historical charts and Tempo for traces.</p>
+    </section>
+
+    <section id="console" class="hidden" aria-labelledby="console-title">
+      <div class="intro">
+        <p class="eyebrow">Experience 02 · authenticated / live</p>
+        <h1 id="console-title">Operations console.</h1>
+        <p class="lede">Tenant-scoped status and audit events; support and operator queues; operator-only recovery actions. Data is requested only after an OIDC access token is supplied.</p>
+      </div>
+      <div class="auth-line">
+        <label for="access-token">OIDC access token <span>kept in memory; cleared from the field immediately</span></label>
+        <input id="access-token" type="password" autocomplete="off" spellcheck="false" aria-describedby="auth-status">
+        <button id="connect" type="button">Connect</button>
+        <button id="disconnect" type="button" disabled>Disconnect</button>
+        <p id="auth-status" role="status">Disconnected. Use a short-lived token from your approved OIDC flow.</p>
+      </div>
+      <div id="live-content" class="hidden">
+        <div class="rule-head"><h2>01 / Operation &amp; timeline</h2><p>Customer: own tenant · support/operator: admin review scope</p></div>
+        <div class="lookup">
+          <label for="operation-id">Operation UUID</label>
+          <input id="operation-id" type="text" inputmode="text" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
+          <button id="load-operation" type="button">Load operation</button>
+        </div>
+        <p id="operation-status" role="status"></p>
+        <div id="operation-detail"></div>
+        <div id="timeline"></div>
+        <div class="rule-head"><h2>02 / Cancellation work</h2><p>Support can inspect; only operators can act</p></div>
+        <div class="action-line"><button id="refresh-queues" type="button">Refresh queues</button><span>Showing at most 50 rows per queue</span></div>
+        <h3>Pending and uncertain</h3><div id="queue"></div>
+        <h3>Dead letters</h3><div id="dlq"></div>
+        <h3>Recent cancellation history</h3><div id="history"></div>
+        <h3>Ambiguous writes</h3><div id="review"></div>
+        <p id="action-status" role="status"></p>
+        <div class="rule-head"><h2>03 / Observability</h2><p>Operator role</p></div>
+        <div class="action-line"><button id="refresh-metrics" type="button">Refresh snapshot</button><span id="sampled-at"></span></div>
+        <div id="metrics-chart" class="chart"></div>
+        <div id="metrics-detail"></div>
+        <p id="dashboard-link"></p>
+        <p class="caption">Snapshot values are process-local counters and queue gauges. Use the linked Grafana dashboard for Prometheus history and Tempo trace search. Trace IDs appear only when sampled and recorded.</p>
+      </div>
+    </section>
+  </main>
+  <footer>Repository-owned visual guide · No passenger details, secrets, or supplier response bodies</footer>
+</body>
+</html>

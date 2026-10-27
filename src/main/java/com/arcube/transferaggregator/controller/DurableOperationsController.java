@@ -39,6 +39,9 @@ public class DurableOperationsController {
         }
     }
     public record ActionRequest(String evidenceReference, String decision) {}
+    public record DeadLetterView(UUID jobId, UUID operationId, String tenantId, String supplierCode,
+                                 int attempts, String reasonCode, Instant createdAt, int replayCount,
+                                 boolean replayPermitted) {}
 
     @GetMapping("/api/v1/operations/{operationId}")
     public ResponseEntity<OperationView> status(@PathVariable UUID operationId) {
@@ -54,6 +57,13 @@ public class DurableOperationsController {
             .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/api/v1/admin/operations/{operationId}")
+    public ResponseEntity<OperationView> adminStatus(@PathVariable UUID operationId) {
+        return operations.get(operationId)
+            .map(operation -> ResponseEntity.ok(OperationView.from(operation)))
+            .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/api/v1/admin/operations/{operationId}/timeline")
     public ResponseEntity<List<WorkflowRepository.AuditEvent>> adminTimeline(@PathVariable UUID operationId) {
         return operations.get(operationId)
@@ -63,7 +73,7 @@ public class DurableOperationsController {
 
     @GetMapping("/api/v1/admin/operations/review")
     public List<OperationView> reviewQueue(@RequestParam(defaultValue = "50") int limit) {
-        return operations.reviewQueue(limit).stream().map(OperationView::from).toList();
+        return operations.reviewQueue(bounded(limit)).stream().map(OperationView::from).toList();
     }
 
     @PostMapping("/api/v1/admin/operations/{operationId}/review")
@@ -79,8 +89,21 @@ public class DurableOperationsController {
     }
 
     @GetMapping("/api/v1/admin/cancellations/dlq")
-    public List<CancellationRepository.DeadLetter> deadLetters(@RequestParam(defaultValue = "50") int limit) {
-        return cancellations.deadLetters(limit);
+    public List<DeadLetterView> deadLetters(@RequestParam(defaultValue = "50") int limit) {
+        return cancellations.deadLetters(bounded(limit)).stream().map(letter -> new DeadLetterView(
+            letter.jobId(), letter.operationId(), letter.tenantId(), letter.supplierCode(),
+            letter.attempts(), letter.reasonCode(), letter.createdAt(), letter.replayCount(),
+            cancellations.replayPermitted(letter.supplierCode()))).toList();
+    }
+
+    @GetMapping("/api/v1/admin/cancellations/queue")
+    public List<CancellationRepository.QueueView> cancellationQueue(@RequestParam(defaultValue = "50") int limit) {
+        return cancellations.queue(bounded(limit));
+    }
+
+    @GetMapping("/api/v1/admin/cancellations/history")
+    public List<CancellationRepository.HistoryView> cancellationHistory(@RequestParam(defaultValue = "50") int limit) {
+        return cancellations.history(bounded(limit));
     }
 
     @PostMapping("/api/v1/admin/cancellations/dlq/{jobId}/replay")
@@ -101,5 +124,9 @@ public class DurableOperationsController {
         if (reference == null || !reference.matches("[A-Za-z0-9._:/-]{4,128}")) {
             throw new IllegalArgumentException("An evidence reference of 4-128 safe characters is required");
         }
+    }
+
+    private int bounded(int limit) {
+        return Math.min(Math.max(limit, 1), 100);
     }
 }
