@@ -4,10 +4,12 @@ This directory runs a **local observability stack** with Prometheus, Grafana OSS
 
 ## Start the local view
 
-1. Set a local Grafana password in your shell: `export GRAFANA_ADMIN_PASSWORD=<your-local-password>`.
-2. Start the stack: `docker-compose -f observability/docker-compose.yml up -d`.
+1. From the repository root, create `observability/.env` containing `GRAFANA_ADMIN_PASSWORD=<a-unique-local-password>`. This file is ignored by Git; keep it private. If it already exists, reuse it.
+2. Start the separate stack: `docker-compose --env-file observability/.env -f observability/docker-compose.yml up -d`. Check `docker-compose --env-file observability/.env -f observability/docker-compose.yml ps` and `curl -fsS http://localhost:3000/api/health`.
 3. Start the application with `SPRING_PROFILES_ACTIVE=local` and `OTLP_TRACING_ENABLED=true`. The default OTLP URL is `http://localhost:4318/v1/traces`.
-4. Open `http://localhost:3000`, sign in as `admin`, and open **Transfer Aggregator Operations**. Use Grafana Explore with the **Tempo** data source to search traces.
+4. Open `http://localhost:3000`, sign in as `admin` using the password in `observability/.env`, and open **Transfer Aggregator Operations**. Use Grafana Explore with the **Tempo** data source to search traces.
+
+The operations console links to Grafana whenever `GRAFANA_BASE_URL` is configured; the local profile defaults to `http://localhost:3000`. A connection refusal means the separate observability stack has not started. The console's local metrics snapshot still works without it.
 
 Prometheus targets `host.docker.internal:8080/actuator/prometheus`. That endpoint requires an `OPERATOR` bearer token in both supported runtime profiles, so the target remains unauthorized until a service identity is configured for the scraper. A human access token is unsuitable because it expires. Configure an approved OAuth2 client and rotate its credentials through a private secret source before relying on dashboard metrics or alerts. Keep Grafana, Prometheus, and Tempo behind authentication and private networking in any shared environment. The local Tempo volume keeps traces for seven days; Prometheus retains metrics for fifteen days.
 

@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @SpringBootTest(properties = {
     "security.api.enabled=true",
@@ -120,5 +121,34 @@ class SecurityBoundaryTest {
         mvc.perform(post("/api/v1/admin/alerts/dlq/simulate")
                 .header("Authorization", "Bearer OPERATOR.tenant-a"))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void visualShellIsPublicButSessionAndMetricsRespectRoleAndTenant() throws Exception {
+        mvc.perform(get("/visual/index.html")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/visual/session")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/visual/session").header("Authorization", "Bearer CUSTOMER.tenant-a"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.tenantId").value("tenant-a"))
+            .andExpect(jsonPath("$.roles[0]").value("CUSTOMER"));
+        mvc.perform(get("/api/v1/admin/visual/metrics").header("Authorization", "Bearer CUSTOMER.tenant-a"))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/visual/metrics").header("Authorization", "Bearer SUPPORT.tenant-a"))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/visual/metrics").header("Authorization", "Bearer OPERATOR.tenant-a"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.searchComplete").isNumber());
+        for (String path : List.of("/api/v1/admin/cancellations/queue", "/api/v1/admin/cancellations/history",
+                "/api/v1/admin/cancellations/dlq", "/api/v1/admin/operations/review")) {
+            mvc.perform(get(path).header("Authorization", "Bearer CUSTOMER.tenant-a"))
+                .andExpect(status().isForbidden());
+        }
+        mvc.perform(post("/api/v1/admin/cancellations/dlq/00000000-0000-0000-0000-000000000000/replay")
+                .header("Authorization", "Bearer SUPPORT.tenant-a"))
+            .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/admin/operations/00000000-0000-0000-0000-000000000000/review")
+                .header("Authorization", "Bearer SUPPORT.tenant-a"))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/visual/session").header("Authorization", "Bearer OPERATOR.tenant-a")
+                .header("X-Tenant-Id", "tenant-b"))
+            .andExpect(status().isForbidden());
     }
 }

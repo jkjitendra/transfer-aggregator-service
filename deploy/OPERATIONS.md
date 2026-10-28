@@ -5,7 +5,7 @@
 From a fresh checkout, install Docker with Compose, then run:
 
 ```bash
-bash scripts/generate-local-env.sh
+test -f deploy/local/.env || bash scripts/generate-local-env.sh
 docker-compose --env-file deploy/local/.env -f deploy/local/compose.yml up -d --build
 curl -fsS http://localhost:8080/actuator/health/readiness
 ```
@@ -13,7 +13,29 @@ curl -fsS http://localhost:8080/actuator/health/readiness
 The generated `deploy/local/.env` is ignored by Git and contains local-only random keys. The stack runs PostgreSQL, Redis, a one-time Flyway migration container, Keycloak, and the API. It binds the API and Keycloak to loopback. Start a second API instance with `docker-compose --env-file deploy/local/.env -f deploy/local/compose.yml --profile replicas up -d --build`; it listens on port 8082 and shares the same PostgreSQL and Redis. Stop with `docker-compose --env-file deploy/local/.env -f deploy/local/compose.yml down`. Add `--volumes` only when deliberately deleting local databases and Keycloak state.
 PostgreSQL and Redis are also exposed on loopback ports 55435 and 56379 for local integration tests. Set `TRANSFER_TEST_POSTGRES_URL`, `TRANSFER_TEST_POSTGRES_USER`, `TRANSFER_TEST_POSTGRES_PASSWORD`, `TRANSFER_TEST_REDIS_HOST`, `TRANSFER_TEST_REDIS_PORT`, and `TRANSFER_TEST_REDIS_PASSWORD` from the generated local credentials before `./mvnw -Pstatic-analysis clean verify`. CI supplies its own isolated service credentials.
 
-Keycloak imports the `transfer-local` realm and `transfer-local-cli` public client. Sign in to [the local Keycloak admin console](http://localhost:8081/admin/) as `local-admin` with the generated `KEYCLOAK_ADMIN_PASSWORD`, create a user in `transfer-local` with email, first name, and last name, set a non-temporary password, and assign the `CUSTOMER` realm role. For a local API token, request a password-grant access token from `/realms/transfer-local/protocol/openid-connect/token` with `client_id=transfer-local-cli`. This client and grant are for loopback development only; shared deployments must use the organization's OIDC provider and approved flows. The API validates `iss`, `aud=transfer-api`, and the tenant and role claims. Its JWK URL points to Keycloak's internal service address while the expected issuer remains the browser-facing `localhost` URL.
+Keycloak imports the `transfer-local` realm and `transfer-local-cli` public client. The API validates `iss`, `aud=transfer-api`, and the tenant and role claims. Its JWK URL points to Keycloak's internal service address while the expected issuer remains the browser-facing `localhost` URL. The imported client supplies the `default` tenant claim. The direct grant is for loopback development only; shared deployments must use the organization's OIDC provider and approved sign-in flow.
+
+### Run the authenticated operations console locally
+
+1. From the repository root, start the stack with the commands above. If `deploy/local/.env` already exists, keep it; `generate-local-env.sh` refuses to replace existing local keys. Check that `curl -fsS http://localhost:8080/actuator/health/readiness` returns `{"status":"UP"}`.
+2. Open [Keycloak administration](http://localhost:8081/admin/) and sign in as `local-admin` using `KEYCLOAK_ADMIN_PASSWORD` from the ignored `deploy/local/.env` file. In the realm selector choose **transfer-local**. Under **Users**, create an enabled local user with a username, email, first name, and last name. In **Credentials**, set a non-temporary password. In **Role mapping**, assign the **OPERATOR** realm role for the full console. Use **SUPPORT** for read-only queue and review access or **CUSTOMER** for tenant-owned operation lookup. Do not paste passwords or tokens into tickets or chat.
+3. Copy a short-lived access token to the clipboard without putting the password or token in shell history or terminal output:
+
+   ```bash
+   python3 scripts/copy-local-console-token.py
+   ```
+
+   Enter that user's Keycloak username and password at the prompts. The helper calls only the loopback `transfer-local-cli` token endpoint and uses `pbcopy`, `wl-copy`, or `xclip`; install one of those clipboard commands if none is available.
+4. Open [the visual UI](http://localhost:8080/visual/index.html), select **Authenticated operations console**, paste the token into **OIDC access token**, and click **Connect**. Expect `Connected · tenant default · OPERATOR` (or the role you assigned). The field clears immediately; the token stays in this tab's memory until you disconnect, refresh, or close it. After pasting on macOS, clear the clipboard with `printf '' | pbcopy`.
+5. With **OPERATOR**, click **Refresh queues** and **Refresh snapshot**. Review the cancellation queue, DLQ, recent history, ambiguous writes, and aggregate metrics. Enter an operation UUID from an API write to load its sanitized status and timeline. Queues can be empty and counters can be zero on a fresh stack: the public seeded architecture demo does not create live database records. To act on a dead letter, open its timeline, verify the supplier outcome externally, click **Replay** or **Resolve**, enter a safe evidence reference in the inline field, then click **Record Replay** or **Record Resolve**. Replay is offered only for configured suppliers with idempotent cancellation, and the server checks again before accepting it. The Grafana link needs the separate [observability stack](../observability/OPERATIONS.md); its historical metrics also need a scraper identity.
+
+If an older local stack already owns ports `8080`/`8081`, reuse its Compose project instead of launching a second copy. For example, with a project named `transfer-phase5-local`, this starts only the newly built API image while leaving its PostgreSQL, Redis, and Keycloak containers running:
+
+```bash
+docker-compose -p transfer-phase5-local --env-file deploy/local/.env -f deploy/local/compose.yml up -d --build --no-deps app
+```
+
+If the token helper reports **Account is not fully set up**, open **Users → the local user → Details**, fill both **First name** and **Last name**, and save. Clear any pending **Required user actions** after completing them, and ensure the password is non-temporary. Then run the helper again. If **Connect** reports an expired or rejected token, request a fresh token. A `403` means the token lacks the required realm role or has a tenant claim mismatch. Select the intended realm and assign the role there, then request a new token; changing a role does not update an existing token.
 
 LocalStack is optional: add `--profile aws` to the Compose command to run the pinned 4.14.0 open-source community image on port 4566, or use your existing installation. This archived version receives no further fixes and is only for local emulation. The API does not currently call AWS services; LocalStack is an integration sandbox, not a claim of S3/SQS production behavior. The separate [observability stack](../observability/OPERATIONS.md) provides local dashboards and traces. Authenticated metrics require a scraper service identity.
 
