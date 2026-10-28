@@ -30,6 +30,10 @@
 		<java.version>21</java.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<wiremock.version>3.10.0</wiremock.version>
+		<!-- Override the Boot BOMs until a Boot release manages these security fixes. -->
+		<jackson-2-bom.version>2.21.8</jackson-2-bom.version>
+		<jackson-bom.version>3.1.8</jackson-bom.version>
+		<logback.version>1.6.6</logback.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -136,6 +140,22 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>net.minidev</groupId>
+					<artifactId>json-smart</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.skyscreamer</groupId>
+					<artifactId>jsonassert</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>org.skyscreamer</groupId>
+			<artifactId>jsonassert</artifactId>
+			<version>2.0-rc1</version>
+			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -158,8 +178,8 @@
 			<version>${wiremock.version}</version>
 			<scope>test</scope>
 		</dependency>
-		
-		<!-- Logback JSON logging -->
+
+		<!-- Preserve the existing production JSON log format. -->
 		<dependency>
 			<groupId>ch.qos.logback.contrib</groupId>
 			<artifactId>logback-json-classic</artifactId>
