@@ -34,7 +34,7 @@ Email alerts are disabled by default and require no SMTP service. To enable them
 Requires Java 21, Docker Compose, and a shell with `openssl`.
 
 ```bash
-bash scripts/generate-local-env.sh
+test -f deploy/local/.env || bash scripts/generate-local-env.sh
 docker-compose --env-file deploy/local/.env -f deploy/local/compose.yml up -d --build
 curl -fsS http://localhost:8080/actuator/health/readiness
 ```
@@ -56,7 +56,15 @@ SPRING_FLYWAY_ENABLED=false
 
 `DATABASE_PASSWORD`, `REDIS_PASSWORD`, `TOKEN_SECRET`, and `WORKFLOW_ENCRYPTION_KEY` must also be set from that local file. The migration job applies the schema before the API starts. A missing or retired `TOKEN_SECRET` intentionally fails startup with a validation error.
 
-The local realm has a `transfer-local-cli` client. Create a local user in [Keycloak](http://localhost:8081/admin/), assign a realm role such as `CUSTOMER`, and obtain an access token through the realm's OIDC endpoint. Requests need a valid token with the configured audience, role, and enabled tenant claim. The realm and password grant are for loopback development only.
+The local realm has a `transfer-local-cli` client. Requests need a valid token with the configured audience, role, and enabled tenant claim. Follow [the authenticated console walkthrough](deploy/OPERATIONS.md#run-the-authenticated-operations-console-locally) to create a local Keycloak user and copy a short-lived token without printing it. The realm and password grant are for loopback development only.
+
+## Visual guide and operations console
+
+Open `/visual/index.html` on the running API. **Architecture / demo** is public and uses three seeded, synthetic journeys: partial search, unknown booking outcome, and cancellation DLQ recovery. Its HMAC exercise uses a deliberately public synthetic key and does not call a supplier or read live data. The editorial layout uses a Major Third (1.25) type scale and ruled tables rather than dashboard cards.
+
+**Authenticated operations console** accepts a short-lived OIDC access token from an approved sign-in flow. The token stays in browser memory, is cleared from the input immediately, and is never written to storage or a URL. Closing or refreshing the page ends the session. Customer lookup is tenant-scoped; support and operator lookup uses the sanitized admin review scope. Support and operators can read bounded review, cancellation queue, DLQ, and recent history lists. Only operators can see the aggregate meter snapshot and send evidence-backed review, replay, or resolution actions. Replay appears only when the configured supplier declares idempotent cancellation; the backend enforces that rule again. The UI renders API strings as text and never displays passenger details, credentials, production signing keys, booking hashes, or raw supplier bodies.
+
+The metrics snapshot is process-local and has fixed fields without supplier or tenant labels. For historical Prometheus charts and Tempo traces, run the existing observability stack and set `GRAFANA_BASE_URL` to its HTTPS URL (loopback HTTP is allowed for local development). The local profile defaults to `http://localhost:3000`; the production profile has no link until configured. Grafana and Prometheus require their own approved authentication setup, as described in the [observability runbook](observability/OPERATIONS.md). The UI does not treat absent traces or zero meters as proof of healthy operation.
 
 ## API and behavior
 
@@ -73,6 +81,7 @@ Optional OSRM route estimates need `ROUTING_ENABLED=true` and `ROUTING_BASE_URL`
 ```bash
 ./mvnw -B -ntp test
 ruby scripts/validate_openapi.rb
+node --test src/test/javascript/visual.test.cjs
 kubectl kustomize deploy/k8s/overlays/production
 kubectl kustomize deploy/k8s/migrations/production
 ```

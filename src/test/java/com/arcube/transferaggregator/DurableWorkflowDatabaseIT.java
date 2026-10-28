@@ -139,6 +139,8 @@ class DurableWorkflowDatabaseIT {
         assertThat(secondReplica.find("tenant-a", WorkflowRepository.sha256(bookingId))).isPresent();
         assertThat(secondReplica.find("tenant-b", WorkflowRepository.sha256(bookingId))).isEmpty();
         assertThat(new String(created.reservationCiphertext())).doesNotContain("sensitive-reservation");
+        assertThat(cancellations.queue(100)).anyMatch(job -> job.jobId().equals(created.id()));
+        assertThat(cancellations.history(100)).anyMatch(job -> job.jobId().equals(created.id()));
 
         CancellationRepository.Job claimed = secondReplica.claimDue(20).stream()
             .filter(job -> job.id().equals(created.id())).findFirst().orElseThrow();
@@ -156,6 +158,8 @@ class DurableWorkflowDatabaseIT {
         assertThat(meters.get("transfer.cancellation.dlq.depth").gauge().value()).isGreaterThanOrEqualTo(1);
         assertThat(cancellations.replay(created.id(), "operator", "ticket-1234")).isTrue();
         assertThat(cancellations.deadLetters(100)).noneMatch(letter -> letter.jobId().equals(created.id()));
+        assertThat(cancellations.history(100)).anyMatch(job ->
+            job.jobId().equals(created.id()) && "RETRY_SCHEDULED".equals(job.state()));
         assertThat(workflows.timeline(created.operationId(), 100))
             .anyMatch(event -> "DLQ_REPLAY".equals(event.action()));
         queueMetrics.refresh();

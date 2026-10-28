@@ -49,6 +49,8 @@ public class SecurityConfig {
             .formLogin(form -> form.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/visual", "/visual/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/admin/visual/metrics").hasRole("OPERATOR")
                 .requestMatchers(HttpMethod.GET, "/api/v1/admin/**").hasAnyRole("SUPPORT", "OPERATOR")
                 .requestMatchers("/api/v1/admin/**").hasRole("OPERATOR")
                 .requestMatchers("/actuator/prometheus", "/actuator/metrics", "/actuator/metrics/**").hasRole("OPERATOR")

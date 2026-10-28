@@ -56,6 +56,32 @@ public class CancellationRepository {
                       UUID leaseOwner, Instant leaseUntil, String lastErrorCode, Instant createdAt) {}
     public record DeadLetter(UUID jobId, UUID operationId, String tenantId, String supplierCode,
                              int attempts, String reasonCode, Instant createdAt, int replayCount) {}
+    public record QueueView(UUID jobId, UUID operationId, String tenantId, String supplierCode,
+                            String state, int attempts, Instant nextAttemptAt, Instant createdAt) {}
+    public record HistoryView(UUID jobId, UUID operationId, String tenantId, String supplierCode,
+                              String state, int attempts, Instant updatedAt) {}
+
+    /** Bounded operational metadata only: no booking hashes or encrypted reservation bodies. */
+    public List<QueueView> queue(int limit) {
+        return jdbc.query("SELECT id,operation_id,tenant_id,supplier_code,state,attempt_count," +
+                "next_attempt_at,created_at FROM cancellation_jobs WHERE state IN " +
+                "('REQUESTED','IN_PROGRESS','RETRY_SCHEDULED','UNKNOWN_OUTCOME') " +
+                "ORDER BY next_attempt_at,created_at LIMIT ?", (rs, row) -> new QueueView(
+                rs.getObject("id", UUID.class), rs.getObject("operation_id", UUID.class),
+                rs.getString("tenant_id"), rs.getString("supplier_code"), rs.getString("state"),
+                rs.getInt("attempt_count"), rs.getTimestamp("next_attempt_at").toInstant(),
+                rs.getTimestamp("created_at").toInstant()), Math.min(Math.max(limit, 1), 100));
+    }
+
+    /** Most recently changed cancellation jobs, including resolved and completed history. */
+    public List<HistoryView> history(int limit) {
+        return jdbc.query("SELECT id,operation_id,tenant_id,supplier_code,state,attempt_count,updated_at " +
+                "FROM cancellation_jobs ORDER BY updated_at DESC LIMIT ?", (rs, row) -> new HistoryView(
+                rs.getObject("id", UUID.class), rs.getObject("operation_id", UUID.class),
+                rs.getString("tenant_id"), rs.getString("supplier_code"), rs.getString("state"),
+                rs.getInt("attempt_count"), rs.getTimestamp("updated_at").toInstant()),
+            Math.min(Math.max(limit, 1), 100));
+    }
 
     public Job request(String tenant, String bookingId, String supplier, String reservationId) {
         String bookingHash = WorkflowRepository.sha256(bookingId);

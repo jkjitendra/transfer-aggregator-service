@@ -75,6 +75,18 @@ public class DurableCancellationWorkflow {
         return repository.deadLetters(limit);
     }
 
+    public List<CancellationRepository.QueueView> queue(int limit) {
+        return repository.queue(limit);
+    }
+
+    public List<CancellationRepository.HistoryView> history(int limit) {
+        return repository.history(limit);
+    }
+
+    public boolean replayPermitted(String supplierCode) {
+        return registry.getSupplier(supplierCode).filter(IdempotentCancellationSupplier.class::isInstance).isPresent();
+    }
+
     public boolean replay(UUID jobId, String actor, String evidenceReference) {
         validateEvidence(evidenceReference);
         CancellationRepository.Job job = repository.find(jobId).orElseThrow(CancellationRequestNotFoundException::new);

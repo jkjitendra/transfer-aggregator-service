@@ -761,6 +761,19 @@ paths:
         '404':
           description: Operation not found for this tenant
 
+  /api/v1/visual/session:
+    get:
+      tags: [Transfers]
+      summary: Show the authenticated tenant and recognized UI roles
+      description: No token or raw JWT claims are returned. Response is not cacheable.
+      operationId: getVisualSession
+      responses:
+        '200':
+          description: Authenticated session capabilities
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VisualSession'}
+
   /api/v1/admin/operations/review:
     get:
       tags: [AdminAlerts]
@@ -775,6 +788,26 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/OperationView'
+
+  /api/v1/admin/operations/{operationId}:
+    get:
+      tags: [AdminAlerts]
+      summary: Get sanitized operation status for support review
+      description: Support or operator role required; returns metadata only, across tenants.
+      operationId: getAdminOperationStatus
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Sanitized operation state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationView'}
+        '404':
+          description: Operation not found
 
   /api/v1/operations/{operationId}/timeline:
     get:
@@ -859,6 +892,57 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeadLetterView'
+
+  /api/v1/admin/cancellations/queue:
+    get:
+      tags: [AdminAlerts]
+      summary: List bounded cancellation queue metadata
+      description: Support or operator role required. At most 100 records; excludes booking identifiers and supplier payloads.
+      operationId: listCancellationQueue
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Pending and uncertain cancellation jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/CancellationQueueView'}
+
+  /api/v1/admin/cancellations/history:
+    get:
+      tags: [AdminAlerts]
+      summary: List recent sanitized cancellation history
+      description: Support or operator role required. Most recently updated jobs, at most 100, including completed and resolved states.
+      operationId: listCancellationHistory
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Recent cancellation job metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/CancellationHistoryView'}
+
+  /api/v1/admin/visual/metrics:
+    get:
+      tags: [AdminAlerts]
+      summary: Read bounded process-local operational meter snapshot
+      description: Operator role required. Aggregates use the same Micrometer meters scraped by Prometheus; historical charts remain in Grafana.
+      operationId: getVisualMetrics
+      responses:
+        '200':
+          description: Fixed-name aggregate metrics without tenant or supplier labels
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VisualMetrics'}
 
   /api/v1/admin/cancellations/dlq/{jobId}/replay:
     post:
@@ -1021,6 +1105,58 @@ components:
           format: date-time
         replayCount:
           type: integer
+        replayPermitted:
+          type: boolean
+          description: True only when the configured supplier declares idempotent cancellation.
+
+    CancellationQueueView:
+      type: object
+      properties:
+        jobId: {type: string, format: uuid}
+        operationId: {type: string, format: uuid}
+        tenantId: {type: string}
+        supplierCode: {type: string}
+        state: {type: string, enum: [REQUESTED, IN_PROGRESS, RETRY_SCHEDULED, UNKNOWN_OUTCOME]}
+        attempts: {type: integer}
+        nextAttemptAt: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+
+    CancellationHistoryView:
+      type: object
+      properties:
+        jobId: {type: string, format: uuid}
+        operationId: {type: string, format: uuid}
+        tenantId: {type: string}
+        supplierCode: {type: string}
+        state: {type: string}
+        attempts: {type: integer}
+        updatedAt: {type: string, format: date-time}
+
+    VisualSession:
+      type: object
+      properties:
+        tenantId: {type: string}
+        roles:
+          type: array
+          items: {type: string, enum: [CUSTOMER, SUPPORT, OPERATOR]}
+
+    VisualMetrics:
+      type: object
+      description: Fixed aggregate snapshot, no identifiers or raw labels.
+      properties:
+        sampledAt: {type: string, format: date-time}
+        searchComplete: {type: integer, format: int64}
+        searchPartial: {type: integer, format: int64}
+        supplierTimeout: {type: integer, format: int64}
+        circuitOpen: {type: integer, format: int64}
+        claimsAcquired: {type: integer, format: int64}
+        claimsReplay: {type: integer, format: int64}
+        claimsConflict: {type: integer, format: int64}
+        reviewDepth: {type: integer, format: int64}
+        pendingCancellations: {type: integer, format: int64}
+        deadLetters: {type: integer, format: int64}
+        bulkheadSaturation: {type: number, format: double}
+        dashboardUrl: {type: string, nullable: true}
 
     AdminActionRequest:
       type: object
