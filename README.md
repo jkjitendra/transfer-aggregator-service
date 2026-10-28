@@ -34,7 +34,7 @@ Email alerts are disabled by default and require no SMTP service. To enable them
 Requires Java 21, Docker Compose, and a shell with `openssl`.
 
 ```bash
-bash scripts/generate-local-env.sh
+test -f deploy/local/.env || bash scripts/generate-local-env.sh
 docker-compose --env-file deploy/local/.env -f deploy/local/compose.yml up -d --build
 curl -fsS http://localhost:8080/actuator/health/readiness
 ```
@@ -56,7 +56,7 @@ SPRING_FLYWAY_ENABLED=false
 
 `DATABASE_PASSWORD`, `REDIS_PASSWORD`, `TOKEN_SECRET`, and `WORKFLOW_ENCRYPTION_KEY` must also be set from that local file. The migration job applies the schema before the API starts. A missing or retired `TOKEN_SECRET` intentionally fails startup with a validation error.
 
-The local realm has a `transfer-local-cli` client. Create a local user in [Keycloak](http://localhost:8081/admin/), assign a realm role such as `CUSTOMER`, and obtain an access token through the realm's OIDC endpoint. Requests need a valid token with the configured audience, role, and enabled tenant claim. The realm and password grant are for loopback development only.
+The local realm has a `transfer-local-cli` client. Requests need a valid token with the configured audience, role, and enabled tenant claim. Follow [the authenticated console walkthrough](deploy/OPERATIONS.md#run-the-authenticated-operations-console-locally) to create a local Keycloak user and copy a short-lived token without printing it. The realm and password grant are for loopback development only.
 
 ## Visual guide and operations console
 

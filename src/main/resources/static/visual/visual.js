@@ -160,20 +160,41 @@ async function loadOperation() {
   } catch (error) { $('operation-status').textContent = error.message; clear($('operation-detail')); clear($('timeline')); }
 }
 
-async function act(path, decision) {
-  const evidenceReference = prompt(`Evidence reference for ${decision} (4–128 safe characters):`);
-  if (evidenceReference === null) return;
-  if (!/^[A-Za-z0-9._:/-]{4,128}$/.test(evidenceReference)) { $('action-status').textContent = 'Use 4–128 letters, digits, dots, underscores, colons, slashes, or hyphens.'; return; }
+async function act(path, decision, evidenceReference, localStatus) {
+  if (!/^[A-Za-z0-9._:/-]{4,128}$/.test(evidenceReference)) {
+    localStatus.textContent = 'Use 4–128 letters, digits, dots, underscores, colons, slashes, or hyphens.';
+    return;
+  }
   try {
     await api(path, {method:'POST', body:JSON.stringify({evidenceReference, decision})});
-    $('action-status').textContent = `${decision} recorded. Refreshing queues.`;
-    await refreshQueues();
-  } catch (error) { $('action-status').textContent = error.message; }
+    const refreshed = await refreshQueues();
+    $('action-status').textContent = `${decision} recorded. ${refreshed ? 'Queues refreshed.' : 'Refresh queues to inspect the new state.'}`;
+  } catch (error) { localStatus.textContent = error.message; $('action-status').textContent = error.message; }
 }
 
 function actionButton(label, path, decision) {
+  const control = node('div', undefined, 'operator-action');
   const button = node('button', label, 'small-button'); button.type = 'button';
-  button.addEventListener('click', () => act(path, decision)); return button;
+  const entry = node('div', undefined, 'evidence-entry hidden');
+  const guidance = label === 'Resolve'
+    ? 'Verify the supplier outcome externally before resolving. Enter its safe evidence reference.'
+    : 'Enter a safe external evidence reference before recording this action.';
+  const fieldLabel = node('label', guidance);
+  const input = node('input'); input.type = 'text'; input.maxLength = 128; input.autocomplete = 'off'; input.spellcheck = false;
+  fieldLabel.append(input);
+  const submit = node('button', `Record ${label}`, 'small-button'); submit.type = 'button';
+  const cancel = node('button', 'Cancel', 'small-button'); cancel.type = 'button';
+  const status = node('p'); status.setAttribute('role', 'status');
+  button.addEventListener('click', () => { entry.classList.remove('hidden'); status.textContent = ''; input.focus(); });
+  cancel.addEventListener('click', () => { input.value = ''; status.textContent = ''; entry.classList.add('hidden'); });
+  submit.addEventListener('click', async () => {
+    submit.disabled = true;
+    try { await act(path, decision, input.value.trim(), status); }
+    finally { submit.disabled = false; }
+  });
+  entry.append(fieldLabel, submit, cancel, status);
+  control.append(button, entry);
+  return control;
 }
 
 async function refreshQueues() {
@@ -198,7 +219,8 @@ async function refreshQueues() {
     table($('history'), [['Operation', x => operationLink(x.operationId)], ['Tenant', x => x.tenantId], ['Supplier', x => x.supplierCode], ['State', x => x.state], ['Attempts', x => x.attempts], ['Last change', x => stamp(x.updatedAt)]], history);
     table($('review'), [['Operation', x => operationLink(x.operationId)], ['Tenant', x => x.tenantId], ['Kind', x => x.kind], ['State', x => x.state], ['Action', x => roles.includes('OPERATOR') ? actionButton('Mark manual review', `/api/v1/admin/operations/${x.operationId}/review`, 'MANUAL_REVIEW') : 'Operator only']], review);
     $('action-status').textContent = `Loaded ${queue.length} queued, ${dlq.length} dead-letter, ${history.length} history, and ${review.length} review records.`;
-  } catch (error) { $('action-status').textContent = error.message; }
+    return true;
+  } catch (error) { $('action-status').textContent = error.message; return false; }
 }
 
 async function refreshMetrics() {

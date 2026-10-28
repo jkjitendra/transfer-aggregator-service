@@ -6,13 +6,22 @@ const { webcrypto } = require('node:crypto');
 const path = require('node:path');
 
 class Element {
-  constructor() { this.children = []; this.textContent = ''; this.style = {}; this.classList = {toggle() {}, add() {}, remove() {}}; }
+  constructor() {
+    this.children = []; this.textContent = ''; this.style = {}; this.listeners = new Map();
+    const classes = new Set();
+    this.classList = {toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); },
+      add(name) { classes.add(name); }, remove(name) { classes.delete(name); }, contains(name) { return classes.has(name); }};
+    Object.defineProperty(this, 'className', {set(value) { classes.clear(); value.split(' ').forEach(name => classes.add(name)); }});
+  }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
-  addEventListener() {}
+  addEventListener(name, handler) { this.listeners.set(name, handler); }
+  setAttribute() {}
+  focus() {}
+  click() { return this.listeners.get('click')(); }
 }
 
-function loadVisual() {
+function loadVisual(fetchImpl = () => { throw new Error('The synthetic demo made a live request'); }) {
   const elements = new Map();
   const document = {
     getElementById(id) { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
@@ -20,9 +29,8 @@ function loadVisual() {
     querySelectorAll() { return []; }
   };
   const source = fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/visual/visual.js'), 'utf8');
-  const context = { document, Node: Element, crypto: webcrypto, TextEncoder, URL,
-    fetch() { throw new Error('The synthetic demo made a live request'); } };
-  vm.runInNewContext(`${source}\nglobalThis.visualTest = {scenarios, renderScenario, verifySynthetic};`, context);
+  const context = { document, Node: Element, crypto: webcrypto, TextEncoder, URL, fetch: fetchImpl };
+  vm.runInNewContext(`${source}\nglobalThis.visualTest = {scenarios, renderScenario, verifySynthetic, actionButton, setOperatorToken(value) { token = value; roles = ['OPERATOR']; }};`, context);
   return { elements, visual: context.visualTest };
 }
 
@@ -47,6 +55,39 @@ test('synthetic HMAC accepts original and rejects changed payload', async () => 
   await visual.verifySynthetic();
   assert.match(elements.get('verification-result').textContent, /Original: valid · altered payload: invalid/);
   assert.match(elements.get('verification-result').textContent, /Synthetic signature: [0-9a-f]{64}/);
+});
+
+test('replay and resolve ask for evidence inline and send authenticated POSTs', async () => {
+  const requests = [];
+  const response = (body) => ({ok: true, status: 200, headers: {get: () => body ? 'application/json' : null}, json: async () => body});
+  const {elements, visual} = loadVisual(async (url, options) => {
+    requests.push({url, options});
+    return response(options.method === 'POST' ? null : []);
+  });
+  visual.setOperatorToken('synthetic-token');
+  for (const decision of ['Replay', 'Resolve']) {
+    const path = `/api/v1/admin/cancellations/dlq/synthetic-id/${decision.toLowerCase()}`;
+    const control = visual.actionButton(decision, path, decision);
+    const [open, entry] = control.children;
+    const [label, submit] = entry.children;
+    const input = label.children[0];
+    assert.equal(entry.classList.contains('hidden'), true);
+    open.click();
+    assert.equal(entry.classList.contains('hidden'), false);
+    const before = requests.length;
+    input.value = 'not safe';
+    await submit.click();
+    assert.match(entry.children[3].textContent, /Use 4–128/);
+    assert.equal(requests.length, before);
+    input.value = 'case-1234';
+    await submit.click();
+    assert.equal(requests[before].url, path);
+    assert.equal(requests[before].options.method, 'POST');
+    assert.equal(requests[before].options.headers.Authorization, 'Bearer synthetic-token');
+    assert.equal(JSON.parse(requests[before].options.body).evidenceReference, 'case-1234');
+    assert.equal(requests.length, before + 5); // POST followed by four bounded queue reads.
+    assert.match(elements.get('action-status').textContent, new RegExp(`${decision} recorded`));
+  }
 });
 
 test('console API calls and rendered containers match the published contract', () => {

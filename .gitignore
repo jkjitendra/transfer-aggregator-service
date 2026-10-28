@@ -26,4 +26,5 @@ replay_pid*
 /target
 .idea
 deploy/local/.env
+observability/.env
 deploy/k8s/transfer-runtime.env
